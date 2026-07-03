@@ -226,6 +226,7 @@ func (s *MemgraphStore) CreateApp(ctx context.Context, input AppInput) (App, err
 		"environment":      normalizeEnvironment(input.Environment),
 		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
+		"gasFreeEnabled":   input.GasFreeEnabled,
 		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 		"now":              now,
 	}
@@ -240,12 +241,14 @@ CREATE (a:EngineApp {
   status: "active",
   allowedChains: $allowedChains,
   allowedContracts: $allowedContracts,
+  gasFreeEnabled: $gasFreeEnabled,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
 })
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
   a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -284,6 +287,7 @@ func (s *MemgraphStore) createAppWithAccount(ctx context.Context, accountID stri
 		"environment":      environment,
 		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
+		"gasFreeEnabled":   input.GasFreeEnabled,
 		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 		"now":              now,
 	}
@@ -299,6 +303,7 @@ CREATE (a:EngineApp {
   status: "active",
   allowedChains: $allowedChains,
   allowedContracts: $allowedContracts,
+  gasFreeEnabled: $gasFreeEnabled,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
@@ -306,6 +311,7 @@ CREATE (a:EngineApp {
 MERGE (owner)-[:OWNS_ENGINE_APP]->(a)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
   a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -333,6 +339,7 @@ func (s *MemgraphStore) ListApps(ctx context.Context) ([]App, error) {
 MATCH (a:EngineApp)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, nil)
@@ -360,6 +367,7 @@ MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp)
 WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, map[string]any{"accountID": strings.TrimSpace(accountID)})
@@ -386,6 +394,7 @@ func (s *MemgraphStore) GetApp(ctx context.Context, id string) (App, bool, error
 MATCH (a:EngineApp {id: $id})
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"id": strings.TrimSpace(id)})
 		if err != nil {
@@ -414,6 +423,7 @@ MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp {id: $id})
 WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"accountID": strings.TrimSpace(accountID), "id": strings.TrimSpace(id)})
 		if err != nil {
@@ -449,11 +459,13 @@ SET a.name = $name,
   a.environment = $environment,
   a.allowedChains = $allowedChains,
   a.allowedContracts = $allowedContracts,
+  a.gasFreeEnabled = $gasFreeEnabled,
   a.rateLimitPerMinute = $rateLimit,
   a.webhookUrl = $webhookUrl,
   a.updatedAt = $now
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{
 			"accountID":        strings.TrimSpace(accountID),
@@ -462,6 +474,7 @@ RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.stat
 			"environment":      normalizeEnvironment(input.Environment),
 			"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 			"allowedContracts": normalizeStringSlice(input.AllowedContracts),
+			"gasFreeEnabled":   input.GasFreeEnabled,
 			"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 			"webhookUrl":       strings.TrimSpace(input.WebhookURL),
 			"now":              now,
@@ -493,6 +506,7 @@ MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp {id: $id})
 SET a.status = "archived", a.updatedAt = $now
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"accountID": strings.TrimSpace(accountID), "id": strings.TrimSpace(id), "now": now})
 		if err != nil {
@@ -645,6 +659,9 @@ func (s *MemgraphStore) CreateProjectWallet(ctx context.Context, appID string, i
 	if strings.TrimSpace(input.EncryptedPrivateKey) == "" {
 		return ProjectWallet{}, errors.New("encrypted private key is required")
 	}
+	if !strings.HasPrefix(strings.TrimSpace(input.EncryptedPrivateKey), "gmr-vault:v1:") {
+		return ProjectWallet{}, errors.New("project wallets must be backed by GMR Vault")
+	}
 	walletType := strings.TrimSpace(input.WalletType)
 	if walletType == "" {
 		walletType = "server_admin"
@@ -742,6 +759,17 @@ func (s *MemgraphStore) UpsertUserWallet(ctx context.Context, appID string, inpu
 	if userID == "" {
 		userID = address
 	}
+	walletCustody := strings.ToLower(strings.TrimSpace(input.WalletCustody))
+	if walletCustody == "" {
+		walletCustody = "external"
+	}
+	if walletCustody != "managed" && walletCustody != "external" {
+		return UserWallet{}, errors.New("walletCustody must be managed or external")
+	}
+	walletType := strings.TrimSpace(input.WalletType)
+	if walletType == "" {
+		walletType = walletCustody
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
@@ -758,22 +786,29 @@ SET
   w.authProvider = $authProvider,
   w.email = $email,
   w.metadata = $metadata,
+  w.vaultWalletRef = CASE WHEN $vaultWalletRef = "" THEN coalesce(w.vaultWalletRef, "") ELSE $vaultWalletRef END,
+  w.walletCustody = $walletCustody,
+  w.walletType = $walletType,
   w.updatedAt = $now,
   w.lastSeenAt = $now
 MERGE (a)-[:HAS_USER_WALLET]->(w)
 RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
   coalesce(w.authProvider, "") AS authProvider, coalesce(w.email, "") AS email,
   coalesce(w.status, "active") AS status, coalesce(w.metadata, "") AS metadata,
+  coalesce(w.walletCustody, "external") AS walletCustody, coalesce(w.walletType, "external") AS walletType,
   w.createdAt AS createdAt, w.updatedAt AS updatedAt, w.lastSeenAt AS lastSeenAt
 `, map[string]any{
-			"address":      address,
-			"appID":        strings.TrimSpace(appID),
-			"authProvider": strings.TrimSpace(input.AuthProvider),
-			"email":        strings.TrimSpace(input.Email),
-			"id":           uuid.NewString(),
-			"metadata":     strings.TrimSpace(input.Metadata),
-			"now":          now,
-			"userID":       userID,
+			"address":        address,
+			"appID":          strings.TrimSpace(appID),
+			"authProvider":   strings.TrimSpace(input.AuthProvider),
+			"email":          strings.TrimSpace(input.Email),
+			"id":             uuid.NewString(),
+			"metadata":       strings.TrimSpace(input.Metadata),
+			"now":            now,
+			"userID":         userID,
+			"vaultWalletRef": strings.TrimSpace(input.VaultWalletRef),
+			"walletCustody":  walletCustody,
+			"walletType":     walletType,
 		})
 		if err != nil {
 			return nil, err
@@ -792,6 +827,98 @@ RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
 	return result.(UserWallet), nil
 }
 
+func (s *MemgraphStore) GetActiveManagedUserWallet(ctx context.Context, appID string, authProvider string, userID string) (UserWallet, bool, error) {
+	appID = strings.TrimSpace(appID)
+	authProvider = strings.TrimSpace(authProvider)
+	userID = strings.TrimSpace(userID)
+	if appID == "" || userID == "" {
+		return UserWallet{}, false, nil
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp {id: $appID})-[:HAS_USER_WALLET]->(w:EngineUserWallet)
+WHERE coalesce(w.status, "active") = "active"
+  AND coalesce(w.walletCustody, "") = "managed"
+  AND w.userId = $userID
+  AND ($authProvider = "" OR coalesce(w.authProvider, "") = $authProvider)
+RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
+  coalesce(w.authProvider, "") AS authProvider, coalesce(w.email, "") AS email,
+  coalesce(w.status, "active") AS status, coalesce(w.metadata, "") AS metadata,
+  coalesce(w.walletCustody, "external") AS walletCustody, coalesce(w.walletType, "external") AS walletType,
+  w.createdAt AS createdAt, w.updatedAt AS updatedAt, coalesce(w.lastSeenAt, "") AS lastSeenAt
+ORDER BY coalesce(w.lastSeenAt, w.updatedAt, w.createdAt) DESC
+LIMIT 1
+`, map[string]any{
+			"appID":        appID,
+			"authProvider": authProvider,
+			"userID":       userID,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return userWalletFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	})
+	if err != nil {
+		return UserWallet{}, false, err
+	}
+	if result == nil {
+		return UserWallet{}, false, nil
+	}
+	return result.(UserWallet), true, nil
+}
+
+func (s *MemgraphStore) GetActiveManagedUserWalletSecretByAddress(ctx context.Context, appID string, address string) (UserWalletSecret, bool, error) {
+	appID = strings.TrimSpace(appID)
+	address = strings.ToLower(strings.TrimSpace(address))
+	if appID == "" || address == "" {
+		return UserWalletSecret{}, false, nil
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp {id: $appID})-[:HAS_USER_WALLET]->(w:EngineUserWallet {address: $address})
+WHERE coalesce(w.status, "active") = "active"
+  AND coalesce(w.walletCustody, "") = "managed"
+  AND coalesce(w.vaultWalletRef, "") <> ""
+RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
+  coalesce(w.authProvider, "") AS authProvider, coalesce(w.email, "") AS email,
+  coalesce(w.status, "active") AS status, coalesce(w.metadata, "") AS metadata,
+  coalesce(w.walletCustody, "managed") AS walletCustody, coalesce(w.walletType, "managed_user") AS walletType,
+  coalesce(w.vaultWalletRef, "") AS vaultWalletRef,
+  w.createdAt AS createdAt, w.updatedAt AS updatedAt, coalesce(w.lastSeenAt, "") AS lastSeenAt
+LIMIT 1
+`, map[string]any{"appID": appID, "address": address})
+		if err != nil {
+			return nil, err
+		}
+		if !rows.Next(ctx) {
+			return nil, rows.Err()
+		}
+		record := rows.Record()
+		wallet := userWalletFromRecord(record)
+		return UserWalletSecret{
+			UserWallet:     wallet,
+			VaultWalletRef: stringValue(record, "vaultWalletRef"),
+		}, rows.Err()
+	})
+	if err != nil {
+		return UserWalletSecret{}, false, err
+	}
+	if result == nil {
+		return UserWalletSecret{}, false, nil
+	}
+	return result.(UserWalletSecret), true, nil
+}
+
 func (s *MemgraphStore) ListUserWallets(ctx context.Context, appID string, limit int64) ([]UserWallet, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
@@ -805,6 +932,7 @@ WHERE coalesce(w.status, "active") <> "deleted"
 RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
   coalesce(w.authProvider, "") AS authProvider, coalesce(w.email, "") AS email,
   coalesce(w.status, "active") AS status, coalesce(w.metadata, "") AS metadata,
+  coalesce(w.walletCustody, "external") AS walletCustody, coalesce(w.walletType, "external") AS walletType,
   w.createdAt AS createdAt, w.updatedAt AS updatedAt, coalesce(w.lastSeenAt, "") AS lastSeenAt
 ORDER BY coalesce(w.lastSeenAt, w.updatedAt, w.createdAt) DESC
 LIMIT $limit
@@ -838,6 +966,7 @@ SET w.status = "deleted", w.updatedAt = $now
 RETURN w.id AS id, w.appId AS appId, w.userId AS userId, w.address AS address,
   coalesce(w.authProvider, "") AS authProvider, coalesce(w.email, "") AS email,
   coalesce(w.status, "active") AS status, coalesce(w.metadata, "") AS metadata,
+  coalesce(w.walletCustody, "external") AS walletCustody, coalesce(w.walletType, "external") AS walletType,
   w.createdAt AS createdAt, w.updatedAt AS updatedAt, coalesce(w.lastSeenAt, "") AS lastSeenAt
 `, map[string]any{
 			"appID": strings.TrimSpace(appID),
@@ -1044,6 +1173,7 @@ WHERE coalesce(a.status, "active") = "active"
 SET k.lastUsedAt = $now
 RETURN a.id AS appId, a.name AS appName, a.environment AS appEnvironment, coalesce(a.status, "active") AS appStatus,
   coalesce(a.allowedChains, []) AS appAllowedChains, coalesce(a.allowedContracts, []) AS appAllowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS appGasFreeEnabled,
   coalesce(a.rateLimitPerMinute, 60) AS appRateLimitPerMinute, coalesce(a.webhookUrl, "") AS appWebhookUrl, a.createdAt AS appCreatedAt, a.updatedAt AS appUpdatedAt,
   k.id AS id, k.appId AS keyAppId, k.name AS name, k.prefix AS prefix, k.scopes AS scopes,
   coalesce(k.allowedOrigins, []) AS allowedOrigins, coalesce(k.allowedIPs, []) AS allowedIPs,
@@ -1588,6 +1718,49 @@ RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name, d.symbol 
 	return result.(ERC20Deployment), nil
 }
 
+func (s *MemgraphStore) RetryERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:HAS_ERC20_DEPLOYMENT]->(d:ERC20Deployment {id: $deploymentID})
+WHERE coalesce(d.hiddenFromDashboard, false) = false AND coalesce(d.status, "queued") = "failed"
+SET d.status = "queued",
+    d.error = "",
+    d.transactionHash = "",
+    d.contractAddress = "",
+    d.queuedAt = $now,
+    d.updatedAt = $now
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name, d.symbol AS symbol,
+  d.decimals AS decimals, d.initialSupply AS initialSupply, d.ownerAddress AS ownerAddress,
+  d.chainId AS chainId, coalesce(d.description, "") AS description, coalesce(d.imageUrl, "") AS imageUrl,
+  coalesce(d.socialUrls, []) AS socialUrls, coalesce(d.status, "queued") AS status,
+  coalesce(d.contractAddress, "") AS contractAddress, coalesce(d.transactionHash, "") AS transactionHash,
+  coalesce(d.error, "") AS error, coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  d.createdAt AS createdAt, d.updatedAt AS updatedAt, coalesce(d.queuedAt, "") AS queuedAt
+`, map[string]any{
+			"accountID":    strings.TrimSpace(accountID),
+			"deploymentID": strings.TrimSpace(deploymentID),
+			"now":          now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return erc20DeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("failed deployment not found")
+	})
+	if err != nil {
+		return ERC20Deployment{}, err
+	}
+	return result.(ERC20Deployment), nil
+}
+
 func (s *MemgraphStore) ClaimNextERC20Deployment(ctx context.Context) (ERC20Deployment, bool, error) {
 	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
@@ -1984,7 +2157,7 @@ RETURN d.id AS id
 func (s *MemgraphStore) CreateEscrowDeployment(ctx context.Context, input EscrowDeploymentInput) (EscrowDeployment, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		name = "Budol Prediction Escrow"
+		name = "BudolPH Prediction Escrow"
 	}
 	if input.ChainID <= 0 {
 		return EscrowDeployment{}, errors.New("chainId is required")

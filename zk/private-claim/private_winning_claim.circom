@@ -46,7 +46,7 @@ template PrivateWinningClaim(levels) {
     signal input pathElements[levels];
     signal input pathIndices[levels];
 
-    // Budol markets currently use two outcomes: 1 = A/Yes, 2 = B/No.
+    // BudolPH markets currently use two outcomes: 1 = A/Yes, 2 = B/No.
     (outcome - 1) * (outcome - 2) === 0;
     (resolvedOutcome - 1) * (resolvedOutcome - 2) === 0;
     outcome === resolvedOutcome;

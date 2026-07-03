@@ -1,6 +1,6 @@
 # Shielded Withdrawal Circuit
 
-This circuit proves that a user owns a credited shielded payout note and can withdraw it from the Budol shielded payout pool.
+This circuit proves that a user owns a credited shielded payout note and can withdraw it from the BudolPH shielded payout pool.
 
 It is separate from the private winning-claim circuit:
 
@@ -21,7 +21,7 @@ poolAddress
 denomination
 ```
 
-The pool verifier adapter and Budol API both require these public values to match the configured pool context.
+The pool verifier adapter and BudolPH API both require these public values to match the configured pool context.
 
 ## Private Witness
 
@@ -48,11 +48,11 @@ This lets the pool block double withdrawals without learning the note secret or 
 
 ## Runtime Flow
 
-1. Budol credits a fixed-denomination note commitment into the shielded payout pool.
+1. BudolPH credits a fixed-denomination note commitment into the shielded payout pool.
 2. The user stores the full note locally in the browser.
 3. The user later chooses a recipient wallet.
 4. The browser generates a Groth16 proof and Solidity calldata.
-5. Budol checks the public signals and asks GMR Engine to call the pool.
+5. BudolPH checks the public signals and asks GMR Engine to call the pool.
 6. In verified mode, the pool calls the configured verifier adapter before releasing tokens.
 7. The pool marks the note and nullifier as used.
 
@@ -91,4 +91,3 @@ Current checked-in artifacts are local development artifacts and are marked `pro
 Before real-value usage, replace the development `.zkey` with a final key from a proper multi-party ceremony, export a matching `verification_key.json`, regenerate the Solidity verifier, deploy the new verifier adapter, and update `ceremony.json` with `productionReady: true`.
 
 Use `docs/zk-production-ceremony.md` as the production checklist.
-

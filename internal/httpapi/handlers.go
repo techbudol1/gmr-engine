@@ -5,8 +5,10 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"budol/gmr-engine/internal/store"
+	"budol/gmr-engine/internal/vaultclient"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -221,6 +223,55 @@ func (s Server) upsertUserWallet(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	return c.JSON(fiber.Map{"wallet": wallet})
+}
+
+func (s Server) createManagedUserWallet(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request struct {
+		AuthProvider string `json:"authProvider"`
+		Email        string `json:"email"`
+		Metadata     string `json:"metadata"`
+		UserID       string `json:"userID"`
+	}
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	userID := strings.TrimSpace(request.UserID)
+	if userID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "userID is required")
+	}
+	authProvider := firstNonEmpty(request.AuthProvider, "google_oauth")
+	if wallet, ok, err := s.store.GetActiveManagedUserWallet(c.Context(), principal.App.ID, authProvider, userID); err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load managed user wallet")
+	} else if ok {
+		return c.JSON(fiber.Map{"wallet": wallet})
+	}
+	client, err := vaultclient.New(s.cfg.VaultURL, s.cfg.VaultInternalKey, 20*time.Second)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to configure vault client")
+	}
+	metadata := strings.TrimSpace(request.Metadata)
+	generated, err := client.CreateWallet(c.Context(), principal.App.ID, "managed_user", metadata)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadGateway, "failed to create managed user wallet in vault")
+	}
+	wallet, err := s.store.UpsertUserWallet(c.Context(), principal.App.ID, store.UserWalletInput{
+		Address:        generated.Address,
+		AuthProvider:   authProvider,
+		Email:          request.Email,
+		Metadata:       metadata,
+		UserID:         userID,
+		VaultWalletRef: vaultclient.Reference(generated.ID),
+		WalletCustody:  "managed",
+		WalletType:     "managed_user",
+	})
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, err.Error())
+	}
+	return c.Status(fiber.StatusCreated).JSON(fiber.Map{"wallet": wallet})
 }
 
 func (s Server) deleteUserWallet(c *fiber.Ctx) error {

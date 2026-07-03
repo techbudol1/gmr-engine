@@ -26,7 +26,9 @@ type Config struct {
 	OwnerUsername    string
 	SessionTTL       time.Duration
 	ShutdownTimeout  time.Duration
-	WalletKey        string
+	VaultEnabled     bool
+	VaultInternalKey string
+	VaultURL         string
 	ZKVerifyNetwork  string
 	ZKVerifyRPC      string
 	ZKVerifySeed     string
@@ -34,7 +36,7 @@ type Config struct {
 }
 
 func Load() (Config, error) {
-	loadDotEnv(".env", "../.env")
+	loadDotEnv(".env.gmr-engine", "../.env.gmr-engine")
 
 	cfg := Config{
 		Addr:             envAny([]string{"GMR_ENGINE_ADDR", "ENGINE_ADDR"}, ":8090"),
@@ -54,7 +56,9 @@ func Load() (Config, error) {
 		OwnerUsername:    env("GMR_ENGINE_OWNER_USERNAME", "destrega"),
 		SessionTTL:       time.Duration(envInt("GMR_ENGINE_SESSION_TTL_HOURS", 24)) * time.Hour,
 		ShutdownTimeout:  time.Duration(envIntAny([]string{"GMR_ENGINE_SHUTDOWN_TIMEOUT_SECONDS", "ENGINE_SHUTDOWN_TIMEOUT_SECONDS"}, 5)) * time.Second,
-		WalletKey:        os.Getenv("GMR_ENGINE_WALLET_ENCRYPTION_KEY"),
+		VaultEnabled:     envBool("GMR_ENGINE_VAULT_ENABLED", true),
+		VaultInternalKey: os.Getenv("GMR_ENGINE_VAULT_INTERNAL_API_KEY"),
+		VaultURL:         env("GMR_ENGINE_VAULT_URL", "http://localhost:8091"),
 		ZKVerifyNetwork:  env("GMR_ENGINE_ZKVERIFY_NETWORK", "Volta"),
 		ZKVerifyRPC:      env("GMR_ENGINE_ZKVERIFY_RPC_URL", "https://testnet-rpc.zkverify.io"),
 		ZKVerifySeed:     os.Getenv("GMR_ENGINE_ZKVERIFY_SEED_PHRASE"),
@@ -67,8 +71,14 @@ func Load() (Config, error) {
 	if len(cfg.OwnerPassword) < 12 {
 		return Config{}, errors.New("GMR_ENGINE_OWNER_PASSWORD must be at least 12 characters")
 	}
-	if len(cfg.WalletKey) < 32 {
-		return Config{}, errors.New("GMR_ENGINE_WALLET_ENCRYPTION_KEY must be at least 32 characters")
+	if !cfg.VaultEnabled {
+		return Config{}, errors.New("legacy local project wallets have been removed; set GMR_ENGINE_VAULT_ENABLED=true")
+	}
+	if strings.TrimSpace(cfg.VaultURL) == "" {
+		return Config{}, errors.New("GMR_ENGINE_VAULT_URL is required")
+	}
+	if len(cfg.VaultInternalKey) < 32 {
+		return Config{}, errors.New("GMR_ENGINE_VAULT_INTERNAL_API_KEY must be at least 32 characters")
 	}
 	if cfg.DeployerEnabled && strings.TrimSpace(cfg.AlchemyRPCURL) == "" {
 		return Config{}, errors.New("GMR_ENGINE_ALCHEMY_RPC_URL or ARBITRUM_SEPOLIA_RPC_URL is required when deployer is enabled")

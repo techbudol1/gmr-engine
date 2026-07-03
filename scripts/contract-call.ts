@@ -1,5 +1,6 @@
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { createVaultAccount, hasVaultSigner } from "./vault-account";
 
 type ABIInput = {
   name?: string;
@@ -23,6 +24,11 @@ type Request = {
   privateKey?: `0x${string}`;
   rpcUrl: string;
   value?: string;
+  vaultAddress?: `0x${string}`;
+  vaultApiKey?: string;
+  vaultProjectId?: string;
+  vaultUrl?: string;
+  vaultWalletRef?: string;
 };
 
 const body = await new Response(Bun.stdin.stream()).text();
@@ -69,8 +75,8 @@ if (request.mode === "read") {
   process.exit(0);
 }
 
-if (!request.privateKey) throw new Error("private key is required");
-const account = privateKeyToAccount(request.privateKey);
+if (!request.privateKey && !hasVaultSigner(request)) throw new Error("private key or vault signer is required");
+const account = hasVaultSigner(request) ? createVaultAccount(request) : privateKeyToAccount(request.privateKey!);
 const walletClient = createWalletClient({ account, chain, transport });
 const hash = await walletClient.writeContract({
   abi: request.abi as any,

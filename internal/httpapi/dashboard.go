@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"budol/gmr-engine/internal/store"
-	enginewallet "budol/gmr-engine/internal/wallet"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -361,6 +360,18 @@ func (s Server) dashboardDeleteERC20Deployment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
 	return c.JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardRetryERC20Deployment(c *fiber.Ctx) error {
+	account, ok := c.Locals(accountLocalKey).(store.Account)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "login required")
+	}
+	deployment, err := s.store.RetryERC20Deployment(c.Context(), account.ID, c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
 }
 
 func (s Server) dashboardEscrowDeployments(c *fiber.Ctx) error {
@@ -985,7 +996,7 @@ func (s Server) erc20ConsoleWrite(ctx context.Context, deployment store.ERC20Dep
 	if !ok {
 		return erc20ActionResult{}, errors.New("project wallet not found")
 	}
-	privateKey, err := enginewallet.DecryptPrivateKey(wallet.EncryptedPrivateKey, s.cfg.WalletKey)
+	signerPayload, err := s.projectSignerPayload(ctx, deployment.AppID, wallet, "")
 	if err != nil {
 		return erc20ActionResult{}, err
 	}
@@ -994,9 +1005,11 @@ func (s Server) erc20ConsoleWrite(ctx context.Context, deployment store.ERC20Dep
 		"chainId":         deployment.ChainID,
 		"contractAddress": deployment.ContractAddress,
 		"mode":            "write",
-		"privateKey":      privateKey,
 		"rpcUrl":          s.cfg.AlchemyRPCURL,
 		"walletAddress":   wallet.Address,
+	}
+	for key, value := range signerPayload {
+		payload[key] = value
 	}
 	if action == "airdrop" {
 		recipients := []map[string]string{}
@@ -1131,7 +1144,11 @@ func runERC20ConsoleScript(ctx context.Context, payload []byte) ([]byte, error) 
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, errors.New(strings.TrimSpace(string(output)))
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = "ERC20 console command failed without output"
+		}
+		return nil, errors.New(message)
 	}
 	return bytes.TrimSpace(output), nil
 }
@@ -1143,7 +1160,11 @@ func runContractCallScript(ctx context.Context, payload []byte) ([]byte, error) 
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, errors.New(strings.TrimSpace(string(output)))
+		message := strings.TrimSpace(string(output))
+		if message == "" {
+			message = "contract call command failed without output"
+		}
+		return nil, errors.New(message)
 	}
 	return bytes.TrimSpace(output), nil
 }

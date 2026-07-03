@@ -28,6 +28,7 @@ type App struct {
 	Status           string   `json:"status"`
 	AllowedChains    []int64  `json:"allowedChains"`
 	AllowedContracts []string `json:"allowedContracts"`
+	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
 	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
 	WebhookURL       string   `json:"webhookUrl"`
 	CreatedAt        string   `json:"createdAt"`
@@ -39,6 +40,7 @@ type AppInput struct {
 	Environment      string   `json:"environment"`
 	AllowedChains    []int64  `json:"allowedChains"`
 	AllowedContracts []string `json:"allowedContracts"`
+	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
 	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
 	WebhookURL       string   `json:"webhookUrl"`
 }
@@ -85,25 +87,35 @@ type ProjectWallet struct {
 }
 
 type UserWalletInput struct {
-	UserID       string
-	Address      string
-	AuthProvider string
-	Email        string
-	Metadata     string
+	UserID         string
+	Address        string
+	AuthProvider   string
+	Email          string
+	Metadata       string
+	VaultWalletRef string
+	WalletCustody  string
+	WalletType     string
 }
 
 type UserWallet struct {
-	ID           string `json:"id"`
-	AppID        string `json:"appId"`
-	UserID       string `json:"userId"`
-	Address      string `json:"address"`
-	AuthProvider string `json:"authProvider"`
-	Email        string `json:"email"`
-	Status       string `json:"status"`
-	Metadata     string `json:"metadata"`
-	CreatedAt    string `json:"createdAt"`
-	UpdatedAt    string `json:"updatedAt"`
-	LastSeenAt   string `json:"lastSeenAt"`
+	ID            string `json:"id"`
+	AppID         string `json:"appId"`
+	UserID        string `json:"userId"`
+	Address       string `json:"address"`
+	AuthProvider  string `json:"authProvider"`
+	Email         string `json:"email"`
+	Status        string `json:"status"`
+	Metadata      string `json:"metadata"`
+	WalletCustody string `json:"walletCustody"`
+	WalletType    string `json:"walletType"`
+	CreatedAt     string `json:"createdAt"`
+	UpdatedAt     string `json:"updatedAt"`
+	LastSeenAt    string `json:"lastSeenAt"`
+}
+
+type UserWalletSecret struct {
+	UserWallet
+	VaultWalletRef string
 }
 
 type ProjectWalletSecret struct {
@@ -472,6 +484,8 @@ type Store interface {
 	CreateProjectWallet(ctx context.Context, appID string, input ProjectWalletInput) (ProjectWallet, error)
 	ListProjectWallets(ctx context.Context, appID string, limit int64) ([]ProjectWallet, error)
 	UpsertUserWallet(ctx context.Context, appID string, input UserWalletInput) (UserWallet, error)
+	GetActiveManagedUserWallet(ctx context.Context, appID string, authProvider string, userID string) (UserWallet, bool, error)
+	GetActiveManagedUserWalletSecretByAddress(ctx context.Context, appID string, address string) (UserWalletSecret, bool, error)
 	ListUserWallets(ctx context.Context, appID string, limit int64) ([]UserWallet, error)
 	DeleteUserWallet(ctx context.Context, appID string, id string) (UserWallet, error)
 	GetProjectDefaultAdminWallet(ctx context.Context, appID string) (ProjectWallet, bool, error)
@@ -499,6 +513,7 @@ type Store interface {
 	ListERC20Deployments(ctx context.Context, appID string, limit int64) ([]ERC20Deployment, error)
 	DeleteQueuedERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
 	RemoveERC20DeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
+	RetryERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
 	ClaimNextERC20Deployment(ctx context.Context) (ERC20Deployment, bool, error)
 	MarkERC20DeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
 	MarkERC20DeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string) error

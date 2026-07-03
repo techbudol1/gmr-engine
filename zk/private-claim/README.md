@@ -1,6 +1,6 @@
 # Private Winning Claim Circuit
 
-This circuit is the first concrete Budol/GMR privacy primitive for prediction-market payouts.
+This circuit is the first concrete BudolPH/GMR privacy primitive for prediction-market payouts.
 
 It proves:
 
@@ -14,7 +14,7 @@ It does not yet execute payouts by itself. The payout integration should accept 
 ## Public Inputs
 
 - `root`: Merkle root for the accepted bet-note set.
-- `resolvedOutcome`: winning outcome. Budol currently uses `1` for outcome A/Yes and `2` for outcome B/No.
+- `resolvedOutcome`: winning outcome. BudolPH currently uses `1` for outcome A/Yes and `2` for outcome B/No.
 - `nullifierHash`: one-time claim ID derived from the private note secret and market ID.
 
 ## Private Witness

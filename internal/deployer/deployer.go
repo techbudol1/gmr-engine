@@ -16,9 +16,7 @@ import (
 	"budol/gmr-engine/internal/config"
 	"budol/gmr-engine/internal/contracts"
 	"budol/gmr-engine/internal/store"
-	enginewallet "budol/gmr-engine/internal/wallet"
-
-	"github.com/ethereum/go-ethereum/crypto"
+	"budol/gmr-engine/internal/vaultclient"
 )
 
 type Worker struct {
@@ -393,7 +391,7 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 	if strings.TrimSpace(transaction.ContractAddress) == "" {
 		return transactionResult{}, errors.New("contract address is required")
 	}
-	privateKeyHex, err := w.projectPrivateKeyForWallet(ctx, transaction.AppID, transaction.WalletAddress)
+	signerPayload, err := w.projectSignerPayloadForWallet(ctx, transaction.AppID, transaction.WalletAddress)
 	if err != nil {
 		return transactionResult{}, err
 	}
@@ -402,9 +400,11 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 		"chainId":         transaction.ChainID,
 		"contractAddress": transaction.ContractAddress,
 		"mode":            "write",
-		"privateKey":      privateKeyHex,
 		"rpcUrl":          w.cfg.AlchemyRPCURL,
 		"walletAddress":   transaction.WalletAddress,
+	}
+	for key, value := range signerPayload {
+		payload[key] = value
 	}
 	switch method {
 	case "mint", "transfer":
@@ -434,7 +434,7 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 	var result struct {
 		Transactions []transactionResult `json:"transactions"`
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(output), &result); err != nil {
+	if err := unmarshalCommandJSON(output, &result); err != nil {
 		return transactionResult{}, err
 	}
 	if len(result.Transactions) == 0 || result.Transactions[0].TransactionHash == "" {
@@ -453,21 +453,24 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 	if err := json.Unmarshal([]byte(transaction.Metadata), &metadata); err != nil || len(metadata.ABI) == 0 || string(metadata.ABI) == "null" {
 		return transactionResult{}, false, nil
 	}
-	privateKeyHex, err := w.projectPrivateKeyForWallet(ctx, transaction.AppID, transaction.WalletAddress)
+	signerPayload, err := w.projectSignerPayloadForWallet(ctx, transaction.AppID, transaction.WalletAddress)
 	if err != nil {
 		return transactionResult{}, true, err
 	}
-	payload, err := json.Marshal(map[string]any{
+	payloadMap := map[string]any{
 		"abi":             metadata.ABI,
 		"args":            transaction.Args,
 		"chainId":         transaction.ChainID,
 		"contractAddress": transaction.ContractAddress,
 		"functionName":    transaction.Method,
 		"mode":            "write",
-		"privateKey":      privateKeyHex,
 		"rpcUrl":          w.cfg.AlchemyRPCURL,
 		"value":           transaction.Value,
-	})
+	}
+	for key, value := range signerPayload {
+		payloadMap[key] = value
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return transactionResult{}, true, err
 	}
@@ -482,7 +485,7 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 	var result struct {
 		Transactions []transactionResult `json:"transactions"`
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(output), &result); err != nil {
+	if err := unmarshalCommandJSON(output, &result); err != nil {
 		return transactionResult{}, true, err
 	}
 	if len(result.Transactions) == 0 || result.Transactions[0].TransactionHash == "" {
@@ -492,18 +495,21 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 }
 
 func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID int64, artifact compiledArtifact, args []constructorArg) (deployResult, error) {
-	privateKeyHex, err := w.projectPrivateKey(ctx, appID)
+	signerPayload, err := w.projectSignerPayload(ctx, appID)
 	if err != nil {
 		return deployResult{}, err
 	}
-	payload, err := json.Marshal(map[string]any{
-		"abi":        artifact.ABI,
-		"args":       args,
-		"bytecode":   artifact.Bytecode,
-		"chainId":    chainID,
-		"privateKey": privateKeyHex,
-		"rpcUrl":     w.cfg.AlchemyRPCURL,
-	})
+	payloadMap := map[string]any{
+		"abi":      artifact.ABI,
+		"args":     args,
+		"bytecode": artifact.Bytecode,
+		"chainId":  chainID,
+		"rpcUrl":   w.cfg.AlchemyRPCURL,
+	}
+	for key, value := range signerPayload {
+		payloadMap[key] = value
+	}
+	payload, err := json.Marshal(payloadMap)
 	if err != nil {
 		return deployResult{}, err
 	}
@@ -516,7 +522,7 @@ func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID 
 		return deployResult{}, fmt.Errorf("deployment broadcast failed: %s", strings.TrimSpace(string(output)))
 	}
 	var result deployResult
-	if err := json.Unmarshal(bytes.TrimSpace(output), &result); err != nil {
+	if err := unmarshalCommandJSON(output, &result); err != nil {
 		return deployResult{}, err
 	}
 	if result.TransactionHash == "" {
@@ -525,29 +531,31 @@ func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID 
 	return result, nil
 }
 
-func (w *Worker) projectPrivateKey(ctx context.Context, appID string) (string, error) {
-	return w.projectPrivateKeyForWallet(ctx, appID, "")
+func (w *Worker) projectSignerPayload(ctx context.Context, appID string) (map[string]any, error) {
+	return w.projectSignerPayloadForWallet(ctx, appID, "")
 }
 
-func (w *Worker) projectPrivateKeyForWallet(ctx context.Context, appID string, walletAddress string) (string, error) {
+func (w *Worker) projectSignerPayloadForWallet(ctx context.Context, appID string, walletAddress string) (map[string]any, error) {
 	wallet, ok, err := w.store.GetProjectDefaultAdminWalletSecret(ctx, appID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if !ok {
-		return "", errors.New("project server wallet not found")
+		return nil, errors.New("project server wallet not found")
 	}
 	if strings.TrimSpace(walletAddress) != "" && !strings.EqualFold(wallet.Address, walletAddress) {
-		return "", errors.New("transaction wallet is not the project default admin wallet")
+		return nil, errors.New("transaction wallet is not the project default admin wallet")
 	}
-	privateKeyHex, err := enginewallet.DecryptPrivateKey(wallet.EncryptedPrivateKey, w.cfg.WalletKey)
-	if err != nil {
-		return "", err
+	if !vaultclient.IsReference(wallet.EncryptedPrivateKey) {
+		return nil, errors.New("legacy local project wallet is no longer supported; create a GMR Vault wallet")
 	}
-	if _, err := crypto.HexToECDSA(strings.TrimPrefix(privateKeyHex, "0x")); err != nil {
-		return "", err
-	}
-	return privateKeyHex, nil
+	return map[string]any{
+		"vaultAddress":   wallet.Address,
+		"vaultApiKey":    w.cfg.VaultInternalKey,
+		"vaultProjectId": appID,
+		"vaultUrl":       w.cfg.VaultURL,
+		"vaultWalletRef": wallet.EncryptedPrivateKey,
+	}, nil
 }
 
 func decimalAmountToBaseUnits(amount string, decimals int64) (string, error) {
@@ -598,6 +606,19 @@ func decimalAmountToBaseUnits(amount string, decimals int64) (string, error) {
 type compiledArtifact struct {
 	ABI      string
 	Bytecode string
+}
+
+func unmarshalCommandJSON(output []byte, target any) error {
+	trimmed := bytes.TrimSpace(output)
+	jsonStart := bytes.IndexAny(trimmed, "{[")
+	if jsonStart < 0 {
+		return errors.New("command did not return JSON")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(trimmed[jsonStart:]))
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	return nil
 }
 
 func compileSolidity(ctx context.Context, contractName string, source string) (compiledArtifact, error) {

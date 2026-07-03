@@ -33,6 +33,7 @@ func appFromRecord(record *neo4j.Record) App {
 		Status:           stringValue(record, "status"),
 		AllowedChains:    int64SliceValue(record, "allowedChains"),
 		AllowedContracts: stringSliceValue(record, "allowedContracts"),
+		GasFreeEnabled:   boolValue(record, "gasFreeEnabled"),
 		RateLimitPerMin:  intValue(record, "rateLimitPerMinute"),
 		WebhookURL:       stringValue(record, "webhookUrl"),
 		CreatedAt:        stringValue(record, "createdAt"),
@@ -48,6 +49,7 @@ func appFromPrefixedRecord(record *neo4j.Record, prefix string) App {
 		Status:           stringValue(record, prefix+"Status"),
 		AllowedChains:    int64SliceValue(record, prefix+"AllowedChains"),
 		AllowedContracts: stringSliceValue(record, prefix+"AllowedContracts"),
+		GasFreeEnabled:   boolValue(record, prefix+"GasFreeEnabled"),
 		RateLimitPerMin:  intValue(record, prefix+"RateLimitPerMinute"),
 		WebhookURL:       stringValue(record, prefix+"WebhookUrl"),
 		CreatedAt:        stringValue(record, prefix+"CreatedAt"),
@@ -97,17 +99,19 @@ func projectWalletSecretFromRecord(record *neo4j.Record) ProjectWalletSecret {
 
 func userWalletFromRecord(record *neo4j.Record) UserWallet {
 	return UserWallet{
-		ID:           stringValue(record, "id"),
-		AppID:        stringValue(record, "appId"),
-		UserID:       stringValue(record, "userId"),
-		Address:      stringValue(record, "address"),
-		AuthProvider: stringValue(record, "authProvider"),
-		Email:        stringValue(record, "email"),
-		Status:       stringValue(record, "status"),
-		Metadata:     stringValue(record, "metadata"),
-		CreatedAt:    stringValue(record, "createdAt"),
-		UpdatedAt:    stringValue(record, "updatedAt"),
-		LastSeenAt:   stringValue(record, "lastSeenAt"),
+		ID:            stringValue(record, "id"),
+		AppID:         stringValue(record, "appId"),
+		UserID:        stringValue(record, "userId"),
+		Address:       stringValue(record, "address"),
+		AuthProvider:  stringValue(record, "authProvider"),
+		Email:         stringValue(record, "email"),
+		Status:        stringValue(record, "status"),
+		Metadata:      stringValue(record, "metadata"),
+		WalletCustody: stringValue(record, "walletCustody"),
+		WalletType:    stringValue(record, "walletType"),
+		CreatedAt:     stringValue(record, "createdAt"),
+		UpdatedAt:     stringValue(record, "updatedAt"),
+		LastSeenAt:    stringValue(record, "lastSeenAt"),
 	}
 }
 

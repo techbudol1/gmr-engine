@@ -73,6 +73,29 @@ export class GmrEngineClient {
     });
   }
 
+  async transferERC20WithPermit(input: {
+    amount: string;
+    chainId: number;
+    contractAddress: string;
+    deadline: string;
+    decimals?: number;
+    owner: string;
+    recipient: string;
+    r: string;
+    s: string;
+    v: number;
+  }) {
+    return this.request<{
+      gasFree: boolean;
+      permitTransactionHash: string;
+      transactionIds: string[];
+      transferTransactionHash: string;
+    }>("/v1/erc20/transfer-with-permit", {
+      body: input,
+      method: "POST",
+    });
+  }
+
   async deployPredictionEscrow(input: {
     chainId: number;
     description?: string;

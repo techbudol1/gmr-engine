@@ -12,7 +12,7 @@ import (
 
 	"budol/gmr-engine/internal/config"
 	"budol/gmr-engine/internal/store"
-	"budol/gmr-engine/internal/wallet"
+	"budol/gmr-engine/internal/vaultclient"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
@@ -149,6 +149,7 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	dashboard.Post("/projects/:id/contracts/write", server.requireAccount, server.dashboardContractWrite)
 	dashboard.Get("/contracts/erc20/:id/console", server.requireAccount, server.dashboardERC20Console)
 	dashboard.Post("/contracts/erc20/:id/actions", server.requireAccount, server.dashboardERC20Action)
+	dashboard.Post("/contracts/erc20/:id/retry", server.requireAccount, server.dashboardRetryERC20Deployment)
 	dashboard.Delete("/contracts/erc20/:id", server.requireAccount, server.dashboardDeleteERC20Deployment)
 	dashboard.Get("/projects/:id/contracts/erc1155-editions", server.requireAccount, server.dashboardERC1155EditionDeployments)
 	dashboard.Post("/projects/:id/contracts/erc1155-editions", server.requireAccount, server.dashboardCreateERC1155EditionDeployment)
@@ -162,9 +163,12 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	v1.Post("/wallets", server.requireScope("wallets:write"), server.createWallet)
 	v1.Get("/user-wallets", server.requireScope("wallets:read"), server.userWallets)
 	v1.Post("/user-wallets", server.requireScope("wallets:write"), server.upsertUserWallet)
+	v1.Post("/user-wallets/managed", server.requireScope("wallets:write"), server.createManagedUserWallet)
 	v1.Delete("/user-wallets/:id", server.requireScope("wallets:write"), server.deleteUserWallet)
 	v1.Get("/erc20/balance", server.requireScope("wallets:read"), server.erc20Balance)
 	v1.Post("/erc20/transfer", server.requireScope("transactions:write"), server.erc20Transfer)
+	v1.Post("/erc20/transfer-with-permit", server.requireScope("transactions:write"), server.erc20TransferWithPermit)
+	v1.Post("/erc20/managed-transfer-with-permit", server.requireScope("transactions:write"), server.erc20ManagedTransferWithPermit)
 	v1.Post("/transactions", server.requireScope("transactions:write"), server.enqueueTransaction)
 	v1.Get("/transactions/:id", server.requireScope("transactions:read"), server.transaction)
 	v1.Get("/zkverify/account", server.requireScope("contracts:read"), server.zkVerifyAccount)
@@ -399,13 +403,17 @@ func (s Server) generateProjectWallet(c *fiber.Ctx, appID string, walletType str
 	if walletType == "" {
 		walletType = "server"
 	}
-	generated, err := wallet.Generate(s.cfg.WalletKey)
+	client, err := vaultclient.New(s.cfg.VaultURL, s.cfg.VaultInternalKey, 20*time.Second)
 	if err != nil {
-		return store.ProjectWallet{}, fiber.NewError(fiber.StatusInternalServerError, "failed to create project server wallet")
+		return store.ProjectWallet{}, fiber.NewError(fiber.StatusInternalServerError, "failed to configure vault client")
+	}
+	generated, err := client.CreateWallet(c.Context(), appID, walletType, "")
+	if err != nil {
+		return store.ProjectWallet{}, fiber.NewError(fiber.StatusBadGateway, "failed to create project wallet in vault")
 	}
 	projectWallet, err := s.store.CreateProjectWallet(c.Context(), appID, store.ProjectWalletInput{
 		Address:             generated.Address,
-		EncryptedPrivateKey: generated.EncryptedPrivateKey,
+		EncryptedPrivateKey: vaultclient.Reference(generated.ID),
 		IsDefaultAdmin:      isDefaultAdmin,
 		WalletType:          walletType,
 	})

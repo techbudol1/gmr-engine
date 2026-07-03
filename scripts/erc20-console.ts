@@ -1,5 +1,6 @@
 import { createPublicClient, createWalletClient, defineChain, formatUnits, http, parseAbi } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { createVaultAccount, hasVaultSigner } from "./vault-account";
 
 type TokenAction = "mint" | "transfer" | "burn" | "airdrop";
 
@@ -18,6 +19,11 @@ type Request = {
   recipient?: `0x${string}`;
   recipients?: Recipient[];
   rpcUrl: string;
+  vaultAddress?: `0x${string}`;
+  vaultApiKey?: string;
+  vaultProjectId?: string;
+  vaultUrl?: string;
+  vaultWalletRef?: string;
   walletAddress: `0x${string}`;
 };
 
@@ -65,8 +71,8 @@ if (request.mode === "read") {
   process.exit(0);
 }
 
-if (!request.privateKey) throw new Error("private key is required");
-const account = privateKeyToAccount(request.privateKey);
+if (!request.privateKey && !hasVaultSigner(request)) throw new Error("private key or vault signer is required");
+const account = hasVaultSigner(request) ? createVaultAccount(request) : privateKeyToAccount(request.privateKey!);
 const walletClient = createWalletClient({ account, chain, transport });
 
 async function wait(hash: `0x${string}`) {

@@ -1,5 +1,6 @@
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { createVaultAccount, hasVaultSigner } from "./vault-account";
 
 type ConstructorArg = {
   kind: "address" | "string" | "uint" | "uint8";
@@ -11,8 +12,13 @@ type DeployRequest = {
   args: ConstructorArg[];
   bytecode: string;
   chainId: number;
-  privateKey: `0x${string}`;
+  privateKey?: `0x${string}`;
   rpcUrl: string;
+  vaultAddress?: `0x${string}`;
+  vaultApiKey?: string;
+  vaultProjectId?: string;
+  vaultUrl?: string;
+  vaultWalletRef?: string;
 };
 
 const body = await new Response(Bun.stdin.stream()).text();
@@ -26,7 +32,7 @@ const chain = defineChain({
   },
 });
 
-const account = privateKeyToAccount(request.privateKey);
+const account = hasVaultSigner(request) ? createVaultAccount(request) : privateKeyToAccount(request.privateKey);
 const transport = http(request.rpcUrl);
 const walletClient = createWalletClient({ account, chain, transport });
 const publicClient = createPublicClient({ chain, transport });

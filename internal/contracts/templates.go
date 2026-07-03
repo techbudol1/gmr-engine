@@ -19,9 +19,14 @@ contract %s {
     uint8 public decimals;
     uint256 public totalSupply;
     address public owner;
+    bytes32 public immutable DOMAIN_SEPARATOR;
 
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
+    mapping(address => uint256) public nonces;
+
+    bytes32 private constant EIP712_DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
+    bytes32 private constant PERMIT_TYPEHASH = keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
 
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
@@ -38,6 +43,17 @@ contract %s {
         name = %q;
         symbol = %q;
         decimals = %d;
+        uint256 chainId;
+        assembly {
+            chainId := chainid()
+        }
+        DOMAIN_SEPARATOR = keccak256(abi.encode(
+            EIP712_DOMAIN_TYPEHASH,
+            keccak256(bytes(name)),
+            keccak256(bytes("1")),
+            chainId,
+            address(this)
+        ));
         _mint(initialOwner, initialSupply);
         emit OwnershipTransferred(address(0), initialOwner);
     }
@@ -61,6 +77,31 @@ contract %s {
         }
         _transfer(from, to, value);
         return true;
+    }
+
+    function permit(
+        address tokenOwner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external {
+        require(block.timestamp <= deadline, "permit expired");
+        bytes32 structHash = keccak256(abi.encode(
+            PERMIT_TYPEHASH,
+            tokenOwner,
+            spender,
+            value,
+            nonces[tokenOwner]++,
+            deadline
+        ));
+        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
+        address recovered = ecrecover(digest, v, r, s);
+        require(recovered != address(0) && recovered == tokenOwner, "invalid permit");
+        allowance[tokenOwner][spender] = value;
+        emit Approval(tokenOwner, spender, value);
     }
 
     function mint(address to, uint256 value) external onlyOwner {

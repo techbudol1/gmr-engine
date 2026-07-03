@@ -3,7 +3,7 @@ pragma circom 2.1.6;
 include "circomlib/circuits/poseidon.circom";
 
 template ShieldedWithdrawal() {
-    // Public signals. Budol and the pool use these to bind the proof to one
+    // Public signals. BudolPH and the pool use these to bind the proof to one
     // credited note, one withdrawal nullifier, and one recipient.
     signal input noteCommitment;
     signal input nullifierHash;
