@@ -8,10 +8,10 @@ import (
 	"syscall"
 	"time"
 
-	"budol/gmr-engine/internal/config"
-	"budol/gmr-engine/internal/deployer"
-	"budol/gmr-engine/internal/httpapi"
-	"budol/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/config"
+	"github.com/techbudol1/gmr-engine/internal/deployer"
+	"github.com/techbudol1/gmr-engine/internal/httpapi"
+	"github.com/techbudol1/gmr-engine/internal/store"
 )
 
 func main() {

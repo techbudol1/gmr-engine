@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"budol/gmr-engine/internal/config"
-	"budol/gmr-engine/internal/store"
-	"budol/gmr-engine/internal/vaultclient"
+	"github.com/techbudol1/gmr-engine/internal/config"
+	"github.com/techbudol1/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/vaultclient"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"

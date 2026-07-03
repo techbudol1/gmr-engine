@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"budol/gmr-engine/internal/contracts"
+	"github.com/techbudol1/gmr-engine/internal/contracts"
 )
 
 func TestShieldedWithdrawalVerifierTemplateCompiles(t *testing.T) {

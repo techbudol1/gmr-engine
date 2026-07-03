@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"budol/gmr-engine/internal/store"
-	"budol/gmr-engine/internal/vaultclient"
+	"github.com/techbudol1/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/vaultclient"
 
 	"github.com/gofiber/fiber/v2"
 )

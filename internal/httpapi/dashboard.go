@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"budol/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/store"
 
 	"github.com/gofiber/fiber/v2"
 )

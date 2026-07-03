@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"budol/gmr-engine/internal/store"
-	"budol/gmr-engine/internal/vaultclient"
+	"github.com/techbudol1/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/vaultclient"
 )
 
 func (s Server) projectSignerPayload(ctx context.Context, appID string, wallet store.ProjectWalletSecret, walletAddress string) (map[string]any, error) {

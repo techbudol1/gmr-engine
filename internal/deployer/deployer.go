@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"budol/gmr-engine/internal/config"
-	"budol/gmr-engine/internal/contracts"
-	"budol/gmr-engine/internal/store"
-	"budol/gmr-engine/internal/vaultclient"
+	"github.com/techbudol1/gmr-engine/internal/config"
+	"github.com/techbudol1/gmr-engine/internal/contracts"
+	"github.com/techbudol1/gmr-engine/internal/store"
+	"github.com/techbudol1/gmr-engine/internal/vaultclient"
 )
 
 type Worker struct {

@@ -1,10 +1,10 @@
 FROM golang:1.25-alpine AS build
 
 WORKDIR /src
-COPY gmr-engine/go.mod gmr-engine/go.sum ./
+COPY go.mod go.sum ./
 RUN go mod download
 
-COPY gmr-engine ./
+COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/gmr-engine ./cmd/api
 
 FROM oven/bun:1.3.13
@@ -18,7 +18,7 @@ RUN apt-get update \
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
-COPY gmr-engine/scripts ./scripts
+COPY scripts ./scripts
 COPY --from=build /out/gmr-engine /usr/local/bin/gmr-engine
 RUN command -v bun \
     && command -v wget \

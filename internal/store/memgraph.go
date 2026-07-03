@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"budol/gmr-engine/internal/contracts"
+	"github.com/techbudol1/gmr-engine/internal/contracts"
 
 	"github.com/google/uuid"
 	"github.com/neo4j/neo4j-go-driver/v5/neo4j"

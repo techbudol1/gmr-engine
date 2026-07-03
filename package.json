@@ -1,0 +1,11 @@
+{
+  "name": "gmr-engine",
+  "private": true,
+  "type": "module",
+  "scripts": {},
+  "dependencies": {
+    "circomlibjs": "^0.1.7",
+    "viem": "^2.52.2",
+    "zkverifyjs": "^3.1.0"
+  }
+}
