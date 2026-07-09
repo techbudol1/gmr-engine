@@ -45,13 +45,14 @@ func (s Server) dashboardLogin(c *fiber.Ctx) error {
 	if _, err := s.store.CreateAccountSession(c.Context(), account.ID, hashToken(token), expiresAt.Format(time.RFC3339)); err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to save session")
 	}
+	sameSite, secure := dashboardCookieSettings(c, s.cfg.IsProduction())
 	c.Cookie(&fiber.Cookie{
 		Name:     s.cfg.DashboardCookie,
 		Value:    token,
 		Expires:  expiresAt,
 		HTTPOnly: true,
-		SameSite: fiber.CookieSameSiteLaxMode,
-		Secure:   s.cfg.IsProduction(),
+		SameSite: sameSite,
+		Secure:   secure,
 		Path:     "/",
 	})
 	return c.JSON(fiber.Map{"account": account})
@@ -70,16 +71,28 @@ func (s Server) dashboardLogout(c *fiber.Ctx) error {
 	if token != "" {
 		_ = s.store.DeleteAccountSession(c.Context(), hashToken(token))
 	}
+	sameSite, secure := dashboardCookieSettings(c, s.cfg.IsProduction())
 	c.Cookie(&fiber.Cookie{
 		Name:     s.cfg.DashboardCookie,
 		Value:    "",
 		Expires:  time.Now().UTC().Add(-time.Hour),
 		HTTPOnly: true,
-		SameSite: fiber.CookieSameSiteLaxMode,
-		Secure:   s.cfg.IsProduction(),
+		SameSite: sameSite,
+		Secure:   secure,
 		Path:     "/",
 	})
 	return c.JSON(fiber.Map{"ok": true})
+}
+
+func dashboardCookieSettings(c *fiber.Ctx, production bool) (string, bool) {
+	secure := production ||
+		strings.EqualFold(c.Protocol(), "https") ||
+		strings.EqualFold(c.Get("X-Forwarded-Proto"), "https") ||
+		strings.Contains(strings.ToLower(c.Get("Cf-Visitor")), `"scheme":"https"`)
+	if secure {
+		return fiber.CookieSameSiteNoneMode, true
+	}
+	return fiber.CookieSameSiteLaxMode, false
 }
 
 func (s Server) dashboardProjects(c *fiber.Ctx) error {
