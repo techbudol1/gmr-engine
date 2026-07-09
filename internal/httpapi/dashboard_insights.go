@@ -229,7 +229,7 @@ func (s Server) dashboardProjectWalletDetail(c *fiber.Ctx) error {
 }
 
 func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, walletAddress string, includeTransfers bool, page int, limit int) (dashboardWalletDetail, error) {
-	chainID := int64(421614)
+	chainID := int64(2651420)
 	if len(app.AllowedChains) > 0 {
 		chainID = app.AllowedChains[0]
 	}
@@ -243,6 +243,8 @@ func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, wal
 	}
 	tokenBalances := []dashboardTokenBalance{}
 	contractAddresses := []string{}
+	tokenDecimals := map[string]int64{}
+	tokenSymbols := map[string]string{}
 	for _, deployment := range deployments {
 		if deployment.Status != "confirmed" || strings.TrimSpace(deployment.ContractAddress) == "" {
 			continue
@@ -259,12 +261,15 @@ func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, wal
 			Symbol:          token.Symbol,
 			Value:           token.OwnedBalance,
 		})
-		contractAddresses = append(contractAddresses, deployment.ContractAddress)
+		contractAddress := strings.ToLower(strings.TrimSpace(deployment.ContractAddress))
+		contractAddresses = append(contractAddresses, contractAddress)
+		tokenDecimals[contractAddress] = token.Decimals
+		tokenSymbols[contractAddress] = token.Symbol
 	}
 	transfers := []dashboardTransfer{}
 	hasMore := false
 	if includeTransfers && len(contractAddresses) > 0 {
-		transfers, hasMore, _ = s.walletERC20Transfers(ctx, walletAddress, contractAddresses, page, limit)
+		transfers, hasMore, _ = s.walletERC20Transfers(ctx, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
 	}
 	return dashboardWalletDetail{
 		Wallet:        wallet,
@@ -293,7 +298,10 @@ func (s Server) nativeBalance(ctx context.Context, chainID int64, walletAddress 
 	}, nil
 }
 
-func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, contractAddresses []string, page int, limit int) ([]dashboardTransfer, bool, error) {
+func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
+	if !strings.Contains(strings.ToLower(s.cfg.ChainRPCURL), "alchemy") {
+		return s.walletERC20TransfersFromLogs(ctx, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
+	}
 	fetchLimit := page*limit + 1
 	if fetchLimit < limit+1 {
 		fetchLimit = limit + 1
@@ -338,6 +346,103 @@ func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, 
 		}
 	}
 	return selected, hasMore, nil
+}
+
+func (s Server) walletERC20TransfersFromLogs(ctx context.Context, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
+	addressTopic := evmAddressTopic(walletAddress)
+	if addressTopic == "" {
+		return []dashboardTransfer{}, false, nil
+	}
+	fetchLimit := page*limit + 1
+	if fetchLimit < limit+1 {
+		fetchLimit = limit + 1
+	}
+	combined := []dashboardTransfer{}
+	for _, contractAddress := range contractAddresses {
+		contractAddress = strings.ToLower(strings.TrimSpace(contractAddress))
+		if contractAddress == "" {
+			continue
+		}
+		inbound, _ := s.transferLogs(ctx, walletAddress, contractAddress, []any{erc20TransferTopic, nil, addressTopic}, tokenDecimals, tokenSymbols)
+		outbound, _ := s.transferLogs(ctx, walletAddress, contractAddress, []any{erc20TransferTopic, addressTopic}, tokenDecimals, tokenSymbols)
+		combined = append(combined, inbound...)
+		combined = append(combined, outbound...)
+	}
+	sort.SliceStable(combined, func(i, j int) bool {
+		blockCompare := compareHexQuantity(combined[i].BlockNum, combined[j].BlockNum)
+		if blockCompare != 0 {
+			return blockCompare > 0
+		}
+		return combined[i].Hash > combined[j].Hash
+	})
+	if len(combined) > fetchLimit {
+		combined = combined[:fetchLimit]
+	}
+	start := (page - 1) * limit
+	if start >= len(combined) {
+		return []dashboardTransfer{}, false, nil
+	}
+	end := start + limit
+	hasMore := len(combined) > end
+	if end > len(combined) {
+		end = len(combined)
+	}
+	return combined[start:end], hasMore, nil
+}
+
+const erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+
+func (s Server) transferLogs(ctx context.Context, walletAddress string, contractAddress string, topics []any, tokenDecimals map[string]int64, tokenSymbols map[string]string) ([]dashboardTransfer, error) {
+	var logs []struct {
+		Address          string   `json:"address"`
+		BlockNumber      string   `json:"blockNumber"`
+		Data             string   `json:"data"`
+		Topics           []string `json:"topics"`
+		TransactionHash  string   `json:"transactionHash"`
+		TransactionIndex string   `json:"transactionIndex"`
+		LogIndex         string   `json:"logIndex"`
+	}
+	err := s.rpc(ctx, "eth_getLogs", []any{map[string]any{
+		"address":   contractAddress,
+		"fromBlock": "0x0",
+		"toBlock":   "latest",
+		"topics":    topics,
+	}}, &logs)
+	if err != nil {
+		return nil, err
+	}
+	transfers := make([]dashboardTransfer, 0, len(logs))
+	for _, logEntry := range logs {
+		if len(logEntry.Topics) < 3 {
+			continue
+		}
+		contract := strings.ToLower(firstNonEmpty(logEntry.Address, contractAddress))
+		from := topicAddress(logEntry.Topics[1])
+		to := topicAddress(logEntry.Topics[2])
+		direction := "transfer"
+		if strings.EqualFold(to, walletAddress) {
+			direction = "received"
+		} else if strings.EqualFold(from, walletAddress) {
+			direction = "sent"
+		}
+		rawValue := hexQuantityToDecimal(logEntry.Data)
+		decimals := tokenDecimals[contract]
+		if decimals <= 0 {
+			decimals = 18
+		}
+		transfers = append(transfers, dashboardTransfer{
+			BlockNum:        logEntry.BlockNumber,
+			Category:        "erc20",
+			ContractAddress: contract,
+			Direction:       direction,
+			From:            from,
+			Hash:            logEntry.TransactionHash,
+			To:              to,
+			TokenSymbol:     firstNonEmpty(tokenSymbols[contract], "ERC20"),
+			Value:           formatBaseUnits(rawValue, decimals),
+		})
+	}
+	return transfers, nil
 }
 
 func (s Server) assetTransfers(ctx context.Context, params map[string]any) ([]dashboardTransfer, error) {
@@ -389,7 +494,7 @@ func (s Server) rpc(ctx context.Context, method string, params []any, result any
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.AlchemyRPCURL, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.ChainRPCURL, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -438,8 +543,10 @@ func limitValue(c *fiber.Ctx, fallback int, max int) int {
 
 func nativeSymbol(chainID int64) string {
 	switch chainID {
-	case 42161, 421614, 1, 11155111:
+	case 2651420, 42161, 421614, 1, 11155111:
 		return "ETH"
+	case 26514:
+		return "ZEN"
 	default:
 		return "Native"
 	}
@@ -462,6 +569,40 @@ func formatBaseUnits(raw string, decimals int64) string {
 		fraction = fraction[:6]
 	}
 	return whole + "." + fraction
+}
+
+func compareHexQuantity(left string, right string) int {
+	leftValue := hexToBigInt(left)
+	rightValue := hexToBigInt(right)
+	return leftValue.Cmp(rightValue)
+}
+
+func evmAddressTopic(address string) string {
+	address = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(address)), "0x")
+	if len(address) != 40 {
+		return ""
+	}
+	return "0x" + strings.Repeat("0", 24) + address
+}
+
+func topicAddress(topic string) string {
+	topic = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(topic)), "0x")
+	if len(topic) < 40 {
+		return ""
+	}
+	return "0x" + topic[len(topic)-40:]
+}
+
+func hexQuantityToDecimal(value string) string {
+	return hexToBigInt(value).String()
+}
+
+func hexToBigInt(value string) *big.Int {
+	parsed, ok := new(big.Int).SetString(strings.TrimPrefix(strings.TrimSpace(value), "0x"), 16)
+	if !ok {
+		return big.NewInt(0)
+	}
+	return parsed
 }
 
 func shortForNotification(value string) string {

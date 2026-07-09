@@ -25,8 +25,8 @@ type Worker struct {
 }
 
 func New(ctx context.Context, cfg config.Config, engineStore store.Store) (*Worker, error) {
-	if strings.TrimSpace(cfg.AlchemyRPCURL) == "" {
-		return nil, errors.New("alchemy rpc url is required")
+	if strings.TrimSpace(cfg.ChainRPCURL) == "" {
+		return nil, errors.New("chain rpc url is required")
 	}
 	return &Worker{cfg: cfg, store: engineStore}, nil
 }
@@ -400,7 +400,7 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 		"chainId":         transaction.ChainID,
 		"contractAddress": transaction.ContractAddress,
 		"mode":            "write",
-		"rpcUrl":          w.cfg.AlchemyRPCURL,
+		"rpcUrl":          w.cfg.ChainRPCURL,
 		"walletAddress":   transaction.WalletAddress,
 	}
 	for key, value := range signerPayload {
@@ -464,7 +464,7 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 		"contractAddress": transaction.ContractAddress,
 		"functionName":    transaction.Method,
 		"mode":            "write",
-		"rpcUrl":          w.cfg.AlchemyRPCURL,
+		"rpcUrl":          w.cfg.ChainRPCURL,
 		"value":           transaction.Value,
 	}
 	for key, value := range signerPayload {
@@ -504,7 +504,7 @@ func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID 
 		"args":     args,
 		"bytecode": artifact.Bytecode,
 		"chainId":  chainID,
-		"rpcUrl":   w.cfg.AlchemyRPCURL,
+		"rpcUrl":   w.cfg.ChainRPCURL,
 	}
 	for key, value := range signerPayload {
 		payloadMap[key] = value

@@ -943,7 +943,7 @@ func (s Server) erc20ConsoleRead(ctx context.Context, deployment store.ERC20Depl
 		"chainId":         deployment.ChainID,
 		"contractAddress": deployment.ContractAddress,
 		"mode":            "read",
-		"rpcUrl":          s.cfg.AlchemyRPCURL,
+		"rpcUrl":          s.cfg.ChainRPCURL,
 		"walletAddress":   walletAddress,
 	})
 	if err != nil {
@@ -969,7 +969,7 @@ func (s Server) runContractRead(ctx context.Context, request contractCallRequest
 		"contractAddress": request.ContractAddress,
 		"functionName":    request.FunctionName,
 		"mode":            "read",
-		"rpcUrl":          s.cfg.AlchemyRPCURL,
+		"rpcUrl":          s.cfg.ChainRPCURL,
 	})
 	if err != nil {
 		return nil, err
@@ -1005,7 +1005,7 @@ func (s Server) erc20ConsoleWrite(ctx context.Context, deployment store.ERC20Dep
 		"chainId":         deployment.ChainID,
 		"contractAddress": deployment.ContractAddress,
 		"mode":            "write",
-		"rpcUrl":          s.cfg.AlchemyRPCURL,
+		"rpcUrl":          s.cfg.ChainRPCURL,
 		"walletAddress":   wallet.Address,
 	}
 	for key, value := range signerPayload {

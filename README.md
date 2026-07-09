@@ -51,7 +51,17 @@ The engine persists these records in its own Memgraph instance:
 - `EngineTransaction`
 - `EngineWalletLock`
 
-Transactions start with `queued` status. Workers will later claim queued transactions, acquire the wallet lock, submit through the Alchemy RPC path, and update the transaction status through `submitted`, `confirmed`, or `failed`.
+Transactions start with `queued` status. Workers later claim queued transactions, acquire the wallet lock, submit through the configured chain RPC path, and update the transaction status through `submitted`, `confirmed`, or `failed`.
+
+## Horizen Testnet
+
+This branch defaults the engine RPC to Horizen testnet:
+
+```bash
+GMR_ENGINE_RPC_URL=https://horizen-testnet.rpc.caldera.xyz/http
+```
+
+Horizen testnet chain ID is `2651420`. Project `allowedChains` should include `2651420` for deployment, fund-management, ERC-20 console writes, and generic contract writes on Horizen.
 
 ## GMR Vault Integration
 
