@@ -9,6 +9,7 @@ import (
 	"log"
 	"math/big"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -645,7 +646,11 @@ func compileSolidity(ctx context.Context, contractName string, source string) (c
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(commandCtx, "npx", "-y", "solc", "--standard-json")
+	command, args, err := solidityCompilerCommand()
+	if err != nil {
+		return compiledArtifact{}, err
+	}
+	cmd := exec.CommandContext(commandCtx, command, args...)
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -689,4 +694,34 @@ func compileSolidity(ctx context.Context, contractName string, source string) (c
 		return compiledArtifact{}, errors.New("compiled contract bytecode is empty")
 	}
 	return compiledArtifact{ABI: string(abiBytes), Bytecode: contract.EVM.Bytecode.Object}, nil
+}
+
+func solidityCompilerCommand() (string, []string, error) {
+	candidates := []struct {
+		command string
+		args    []string
+	}{
+		{command: "bun", args: []string{"./node_modules/solc/solc.js", "--standard-json"}},
+		{command: "solcjs", args: []string{"--standard-json"}},
+		{command: "solc", args: []string{"--standard-json"}},
+		{command: "bunx", args: []string{"--bun", "solcjs", "--standard-json"}},
+		{command: "npx", args: []string{"-y", "solc", "--standard-json"}},
+	}
+	for _, candidate := range candidates {
+		if candidate.command == "bun" && len(candidate.args) > 0 {
+			if _, err := os.Stat(candidate.args[0]); err != nil {
+				continue
+			}
+		}
+		if strings.Contains(candidate.command, "/") {
+			if _, err := exec.LookPath(candidate.command); err == nil {
+				return candidate.command, candidate.args, nil
+			}
+			continue
+		}
+		if _, err := exec.LookPath(candidate.command); err == nil {
+			return candidate.command, candidate.args, nil
+		}
+	}
+	return "", nil, errors.New("Solidity compiler not found; install solc or include node_modules/.bin/solcjs")
 }

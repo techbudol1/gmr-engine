@@ -5,6 +5,7 @@
   "scripts": {},
   "dependencies": {
     "circomlibjs": "^0.1.7",
+    "solc": "^0.8.30",
     "viem": "^2.52.2",
     "zkverifyjs": "^3.1.0"
   }
