@@ -326,6 +326,30 @@ func shieldedWithdrawalVerifierDeploymentFromRecord(record *neo4j.Record) Shield
 	}
 }
 
+func accountAbstractionDeploymentFromRecord(record *neo4j.Record) AccountAbstractionDeployment {
+	return AccountAbstractionDeployment{
+		ID:                        stringValue(record, "id"),
+		AppID:                     stringValue(record, "appId"),
+		KeyID:                     stringValue(record, "keyId"),
+		Name:                      stringValue(record, "name"),
+		ChainID:                   intValue(record, "chainId"),
+		Description:               stringValue(record, "description"),
+		Status:                    stringValue(record, "status"),
+		ContractAddress:           stringValue(record, "contractAddress"),
+		TransactionHash:           stringValue(record, "transactionHash"),
+		EntryPointAddress:         stringValue(record, "entryPointAddress"),
+		EntryPointTransactionHash: stringValue(record, "entryPointTransactionHash"),
+		FactoryAddress:            stringValue(record, "factoryAddress"),
+		FactoryTransactionHash:    stringValue(record, "factoryTransactionHash"),
+		BundlerURL:                stringValue(record, "bundlerUrl"),
+		Version:                   stringValue(record, "version"),
+		Error:                     stringValue(record, "error"),
+		CreatedAt:                 stringValue(record, "createdAt"),
+		UpdatedAt:                 stringValue(record, "updatedAt"),
+		QueuedAt:                  stringValue(record, "queuedAt"),
+	}
+}
+
 func zkProofSubmissionFromRecord(record *neo4j.Record) ZKProofSubmission {
 	return ZKProofSubmission{
 		ID:                stringValue(record, "id"),

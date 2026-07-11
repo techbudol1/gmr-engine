@@ -142,6 +142,9 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	dashboard.Get("/projects/:id/contracts/shielded-withdrawal-verifiers", server.requireAccount, server.dashboardShieldedWithdrawalVerifierDeployments)
 	dashboard.Post("/projects/:id/contracts/shielded-withdrawal-verifiers", server.requireAccount, server.dashboardCreateShieldedWithdrawalVerifierDeployment)
 	dashboard.Delete("/contracts/shielded-withdrawal-verifiers/:id", server.requireAccount, server.dashboardDeleteShieldedWithdrawalVerifierDeployment)
+	dashboard.Get("/projects/:id/contracts/account-abstraction", server.requireAccount, server.dashboardAccountAbstractionDeployments)
+	dashboard.Post("/projects/:id/contracts/account-abstraction", server.requireAccount, server.dashboardCreateAccountAbstractionDeployment)
+	dashboard.Delete("/contracts/account-abstraction/:id", server.requireAccount, server.dashboardDeleteAccountAbstractionDeployment)
 	dashboard.Get("/projects/:id/contracts/imported", server.requireAccount, server.dashboardImportedContracts)
 	dashboard.Post("/projects/:id/contracts/imported", server.requireAccount, server.dashboardImportContract)
 	dashboard.Delete("/contracts/imported/:id", server.requireAccount, server.dashboardDeleteImportedContract)
@@ -182,6 +185,7 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	v1.Post("/contracts/private-claim-registries/deployments", server.requireScope("contracts:write"), server.createPrivateClaimRegistryDeployment)
 	v1.Post("/contracts/shielded-payout-pools/deployments", server.requireScope("contracts:write"), server.createShieldedPayoutPoolDeployment)
 	v1.Post("/contracts/shielded-withdrawal-verifiers/deployments", server.requireScope("contracts:write"), server.createShieldedWithdrawalVerifierDeployment)
+	v1.Post("/contracts/account-abstraction/deployments", server.requireScope("contracts:write"), server.createAccountAbstractionDeployment)
 	v1.Post("/wallet-locks", server.requireScope("wallets:write"), server.acquireWalletLock)
 	v1.Delete("/wallet-locks", server.requireScope("wallets:write"), server.releaseWalletLock)
 

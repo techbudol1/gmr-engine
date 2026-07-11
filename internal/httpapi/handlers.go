@@ -603,6 +603,27 @@ func (s Server) createShieldedWithdrawalVerifierDeployment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
 }
 
+func (s Server) createAccountAbstractionDeployment(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request store.AccountAbstractionDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = principal.App.ID
+	request.KeyID = principal.Key.ID
+	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	deployment, err := s.store.CreateAccountAbstractionDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
 func (s Server) acquireWalletLock(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {

@@ -204,6 +204,10 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load shielded withdrawal verifier deployments")
 	}
+	accountAbstractionDeployments, err := s.store.ListAccountAbstractionDeployments(c.Context(), app.ID, 50)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load account abstraction deployments")
+	}
 	importedContracts, err := s.store.ListImportedContracts(c.Context(), app.ID, 50)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load imported contracts")
@@ -212,7 +216,7 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
+	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "accountAbstractionDeployments": accountAbstractionDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
 }
 
 func (s Server) dashboardCreateAPIKey(c *fiber.Ctx) error {
@@ -557,6 +561,50 @@ func (s Server) dashboardDeleteShieldedWithdrawalVerifierDeployment(c *fiber.Ctx
 		return fiber.NewError(fiber.StatusUnauthorized, "login required")
 	}
 	deployment, err := s.store.RemoveShieldedWithdrawalVerifierDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardAccountAbstractionDeployments(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	deployments, err := s.store.ListAccountAbstractionDeployments(c.Context(), app.ID, queryLimit(c))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load account abstraction deployments")
+	}
+	return c.JSON(fiber.Map{"accountAbstractionDeployments": deployments})
+}
+
+func (s Server) dashboardCreateAccountAbstractionDeployment(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	var request store.AccountAbstractionDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = app.ID
+	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	deployment, err := s.store.CreateAccountAbstractionDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardDeleteAccountAbstractionDeployment(c *fiber.Ctx) error {
+	account, ok := c.Locals(accountLocalKey).(store.Account)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "login required")
+	}
+	deployment, err := s.store.RemoveAccountAbstractionDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}

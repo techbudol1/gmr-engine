@@ -3080,6 +3080,195 @@ RETURN d.id AS id
 	return err
 }
 
+func (s *MemgraphStore) CreateAccountAbstractionDeployment(ctx context.Context, input AccountAbstractionDeploymentInput) (AccountAbstractionDeployment, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "Account Abstraction"
+	}
+	if input.ChainID != 2651420 {
+		return AccountAbstractionDeployment{}, errors.New("AA deployment currently supports Horizen Testnet chainId 2651420")
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	params := map[string]any{
+		"id":                uuid.NewString(),
+		"appID":             strings.TrimSpace(input.AppID),
+		"keyID":             strings.TrimSpace(input.KeyID),
+		"name":              name,
+		"chainID":           input.ChainID,
+		"description":       strings.TrimSpace(input.Description),
+		"entryPointAddress": strings.ToLower(strings.TrimSpace(input.EntryPointAddress)),
+		"bundlerURL":        strings.TrimSpace(input.BundlerURL),
+		"version":           "0.8",
+		"now":               now,
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $appID})
+CREATE (d:AccountAbstractionDeployment {
+  id: $id, appId: $appID, keyId: $keyID, name: $name, chainId: $chainID,
+  description: $description, status: "queued", contractAddress: "",
+  transactionHash: "", entryPointAddress: $entryPointAddress, entryPointTransactionHash: "",
+  factoryAddress: "", factoryTransactionHash: "", bundlerUrl: $bundlerURL, version: $version,
+  error: "", createdAt: $now, updatedAt: $now, queuedAt: $now
+})
+MERGE (a)-[:HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT]->(d)
+`+accountAbstractionDeploymentReturn()+`
+`, params)
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return accountAbstractionDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("engine app not found")
+	})
+	if err != nil {
+		return AccountAbstractionDeployment{}, err
+	}
+	return result.(AccountAbstractionDeployment), nil
+}
+
+func (s *MemgraphStore) ListAccountAbstractionDeployments(ctx context.Context, appID string, limit int64) ([]AccountAbstractionDeployment, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp {id: $appID})-[:HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT]->(d:AccountAbstractionDeployment)
+WHERE coalesce(d.hiddenFromDashboard, false) = false
+`+accountAbstractionDeploymentReturn()+`
+ORDER BY d.createdAt DESC
+LIMIT $limit
+`, map[string]any{"appID": strings.TrimSpace(appID), "limit": limit})
+		if err != nil {
+			return nil, err
+		}
+		deployments := []AccountAbstractionDeployment{}
+		for rows.Next(ctx) {
+			deployments = append(deployments, accountAbstractionDeploymentFromRecord(rows.Record()))
+		}
+		return deployments, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]AccountAbstractionDeployment), nil
+}
+
+func (s *MemgraphStore) RemoveAccountAbstractionDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (AccountAbstractionDeployment, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT]->(d:AccountAbstractionDeployment {id: $deploymentID})
+WHERE coalesce(d.hiddenFromDashboard, false) = false AND NOT coalesce(d.status, "queued") IN ["deploying", "submitted"]
+SET d.hiddenFromDashboard = true, d.removedAt = $now, d.updatedAt = $now
+`+accountAbstractionDeploymentReturn()+`
+`, map[string]any{
+			"accountID":    strings.TrimSpace(accountID),
+			"deploymentID": strings.TrimSpace(deploymentID),
+			"now":          time.Now().UTC().Format(time.RFC3339),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return accountAbstractionDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("removable deployment not found")
+	})
+	if err != nil {
+		return AccountAbstractionDeployment{}, err
+	}
+	return result.(AccountAbstractionDeployment), nil
+}
+
+func (s *MemgraphStore) ClaimNextAccountAbstractionDeployment(ctx context.Context) (AccountAbstractionDeployment, bool, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp)-[:HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT]->(d:AccountAbstractionDeployment)
+WHERE coalesce(d.status, "queued") = "queued" AND coalesce(d.hiddenFromDashboard, false) = false
+WITH d ORDER BY d.createdAt ASC LIMIT 1
+SET d.status = "deploying", d.updatedAt = $now, d.error = ""
+`+accountAbstractionDeploymentReturn()+`
+`, map[string]any{"now": time.Now().UTC().Format(time.RFC3339)})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return accountAbstractionDeploymentFromRecord(rows.Record()), nil
+		}
+		return nil, rows.Err()
+	})
+	if err != nil {
+		return AccountAbstractionDeployment{}, false, err
+	}
+	if result == nil {
+		return AccountAbstractionDeployment{}, false, nil
+	}
+	return result.(AccountAbstractionDeployment), true, nil
+}
+
+func (s *MemgraphStore) MarkAccountAbstractionDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error {
+	return s.updateAccountAbstractionDeploymentStatus(ctx, deploymentID, "submitted", transactionHash, AccountAbstractionDeployment{}, "")
+}
+
+func (s *MemgraphStore) MarkAccountAbstractionDeploymentConfirmed(ctx context.Context, deploymentID string, deployment AccountAbstractionDeployment) error {
+	return s.updateAccountAbstractionDeploymentStatus(ctx, deploymentID, "confirmed", "", deployment, "")
+}
+
+func (s *MemgraphStore) MarkAccountAbstractionDeploymentFailed(ctx context.Context, deploymentID string, message string) error {
+	return s.updateAccountAbstractionDeploymentStatus(ctx, deploymentID, "failed", "", AccountAbstractionDeployment{}, message)
+}
+
+func (s *MemgraphStore) updateAccountAbstractionDeploymentStatus(ctx context.Context, deploymentID string, status string, transactionHash string, deployment AccountAbstractionDeployment, message string) error {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	_, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(ctx, `
+MATCH (d:AccountAbstractionDeployment {id: $deploymentID})
+SET d.status = $status, d.updatedAt = $now
+SET d.transactionHash = CASE WHEN $transactionHash <> "" THEN $transactionHash ELSE coalesce(d.transactionHash, "") END
+SET d.contractAddress = CASE WHEN $contractAddress <> "" THEN $contractAddress ELSE coalesce(d.contractAddress, "") END
+SET d.entryPointAddress = CASE WHEN $entryPointAddress <> "" THEN $entryPointAddress ELSE coalesce(d.entryPointAddress, "") END
+SET d.entryPointTransactionHash = CASE WHEN $entryPointTransactionHash <> "" THEN $entryPointTransactionHash ELSE coalesce(d.entryPointTransactionHash, "") END
+SET d.factoryAddress = CASE WHEN $factoryAddress <> "" THEN $factoryAddress ELSE coalesce(d.factoryAddress, "") END
+SET d.factoryTransactionHash = CASE WHEN $factoryTransactionHash <> "" THEN $factoryTransactionHash ELSE coalesce(d.factoryTransactionHash, "") END
+SET d.bundlerUrl = CASE WHEN $bundlerURL <> "" THEN $bundlerURL ELSE coalesce(d.bundlerUrl, "") END
+SET d.version = CASE WHEN $version <> "" THEN $version ELSE coalesce(d.version, "0.8") END
+SET d.error = CASE WHEN $error <> "" THEN $error ELSE "" END
+RETURN d.id AS id
+`, map[string]any{
+			"deploymentID":              strings.TrimSpace(deploymentID),
+			"status":                    strings.TrimSpace(status),
+			"transactionHash":           strings.TrimSpace(transactionHash),
+			"contractAddress":           strings.ToLower(strings.TrimSpace(deployment.ContractAddress)),
+			"entryPointAddress":         strings.ToLower(strings.TrimSpace(deployment.EntryPointAddress)),
+			"entryPointTransactionHash": strings.TrimSpace(deployment.EntryPointTransactionHash),
+			"factoryAddress":            strings.ToLower(strings.TrimSpace(deployment.FactoryAddress)),
+			"factoryTransactionHash":    strings.TrimSpace(deployment.FactoryTransactionHash),
+			"bundlerURL":                strings.TrimSpace(deployment.BundlerURL),
+			"version":                   strings.TrimSpace(deployment.Version),
+			"error":                     strings.TrimSpace(message),
+			"now":                       time.Now().UTC().Format(time.RFC3339),
+		})
+		return nil, err
+	})
+	return err
+}
+
 func (s *MemgraphStore) CreateZKProofSubmission(ctx context.Context, input ZKProofSubmissionInput) (ZKProofSubmission, error) {
 	proofSystem := strings.ToLower(strings.TrimSpace(input.ProofSystem))
 	if proofSystem == "" {
@@ -3316,6 +3505,19 @@ RETURN t.id AS id, t.appId AS appId, t.keyId AS keyId, coalesce(t.idempotencyKey
   coalesce(t.queuedAt, "") AS queuedAt, coalesce(t.startedAt, "") AS startedAt,
   coalesce(t.submittedAt, "") AS submittedAt, coalesce(t.confirmedAt, "") AS confirmedAt,
   coalesce(t.failedAt, "") AS failedAt`
+}
+
+func accountAbstractionDeploymentReturn() string {
+	return `
+RETURN d.id AS id, d.appId AS appId, coalesce(d.keyId, "") AS keyId, d.name AS name,
+  d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.entryPointAddress, "") AS entryPointAddress,
+  coalesce(d.entryPointTransactionHash, "") AS entryPointTransactionHash,
+  coalesce(d.factoryAddress, "") AS factoryAddress, coalesce(d.factoryTransactionHash, "") AS factoryTransactionHash,
+  coalesce(d.bundlerUrl, "") AS bundlerUrl, coalesce(d.version, "0.8") AS version,
+  coalesce(d.error, "") AS error, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt`
 }
 
 func normalizeEnvironment(value string) string {

@@ -75,6 +75,9 @@ func (w *Worker) processOnce(ctx context.Context) {
 	if err := w.processShieldedWithdrawalVerifier(ctx); err != nil {
 		log.Printf("shielded withdrawal verifier deployer error: %v", err)
 	}
+	if err := w.processAccountAbstraction(ctx); err != nil {
+		log.Printf("account abstraction deployer error: %v", err)
+	}
 }
 
 func (w *Worker) processTransaction(ctx context.Context) error {
@@ -271,6 +274,34 @@ func (w *Worker) processShieldedWithdrawalVerifier(ctx context.Context) error {
 	return w.store.MarkShieldedWithdrawalVerifierDeploymentConfirmed(ctx, deployment.ID, result.ContractAddress, artifact.ABI)
 }
 
+func (w *Worker) processAccountAbstraction(ctx context.Context) error {
+	deployment, ok, err := w.store.ClaimNextAccountAbstractionDeployment(ctx)
+	if err != nil || !ok {
+		return err
+	}
+	result, err := w.deployAccountAbstraction(ctx, deployment)
+	if err != nil {
+		_ = w.store.MarkAccountAbstractionDeploymentFailed(ctx, deployment.ID, err.Error())
+		return err
+	}
+	_ = w.store.MarkAccountAbstractionDeploymentSubmitted(ctx, deployment.ID, result.TransactionHash)
+	if result.Status != "success" {
+		_ = w.store.MarkAccountAbstractionDeploymentFailed(ctx, deployment.ID, "account abstraction deployment transaction reverted")
+		return nil
+	}
+	confirmed := store.AccountAbstractionDeployment{
+		ContractAddress:           result.ContractAddress,
+		TransactionHash:           result.TransactionHash,
+		EntryPointAddress:         result.EntryPointAddress,
+		EntryPointTransactionHash: result.EntryPointTransactionHash,
+		FactoryAddress:            result.FactoryAddress,
+		FactoryTransactionHash:    result.FactoryTransactionHash,
+		BundlerURL:                result.BundlerURL,
+		Version:                   result.Version,
+	}
+	return w.store.MarkAccountAbstractionDeploymentConfirmed(ctx, deployment.ID, confirmed)
+}
+
 func (w *Worker) deployERC20(ctx context.Context, deployment store.ERC20Deployment) (deployResult, error) {
 	artifact, err := compileSolidity(ctx, deployment.SourceName, contracts.ERC20Source(deployment.SourceName, deployment.Name, deployment.Symbol, deployment.Decimals))
 	if err != nil {
@@ -362,6 +393,44 @@ func (w *Worker) deployShieldedWithdrawalVerifier(ctx context.Context, deploymen
 	return result, artifact, nil
 }
 
+func (w *Worker) deployAccountAbstraction(ctx context.Context, deployment store.AccountAbstractionDeployment) (accountAbstractionDeployResult, error) {
+	signerPayload, err := w.projectSignerPayload(ctx, deployment.AppID)
+	if err != nil {
+		return accountAbstractionDeployResult{}, err
+	}
+	payloadMap := map[string]any{
+		"chainId":           deployment.ChainID,
+		"entryPointAddress": strings.TrimSpace(deployment.EntryPointAddress),
+		"rpcUrl":            w.cfg.ChainRPCURL,
+	}
+	for key, value := range signerPayload {
+		payloadMap[key] = value
+	}
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return accountAbstractionDeployResult{}, err
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(commandCtx, "bun", "scripts/aa/deploy-horizen-aa-engine.ts")
+	cmd.Stdin = bytes.NewReader(payload)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return accountAbstractionDeployResult{}, fmt.Errorf("account abstraction deployment failed: %s", strings.TrimSpace(string(output)))
+	}
+	var result accountAbstractionDeployResult
+	if err := unmarshalCommandJSON(output, &result); err != nil {
+		return accountAbstractionDeployResult{}, err
+	}
+	if result.TransactionHash == "" || result.FactoryAddress == "" || result.EntryPointAddress == "" {
+		return accountAbstractionDeployResult{}, errors.New("account abstraction deployment did not return required addresses")
+	}
+	if result.ContractAddress == "" {
+		result.ContractAddress = result.FactoryAddress
+	}
+	return result, nil
+}
+
 type constructorArg struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`
@@ -371,6 +440,18 @@ type deployResult struct {
 	ContractAddress string `json:"contractAddress"`
 	Status          string `json:"status"`
 	TransactionHash string `json:"transactionHash"`
+}
+
+type accountAbstractionDeployResult struct {
+	BundlerURL                string `json:"bundlerUrl"`
+	ContractAddress           string `json:"contractAddress"`
+	EntryPointAddress         string `json:"entryPointAddress"`
+	EntryPointTransactionHash string `json:"entryPointTransactionHash"`
+	FactoryAddress            string `json:"factoryAddress"`
+	FactoryTransactionHash    string `json:"factoryTransactionHash"`
+	Status                    string `json:"status"`
+	TransactionHash           string `json:"transactionHash"`
+	Version                   string `json:"version"`
 }
 
 type transactionResult struct {

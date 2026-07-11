@@ -426,6 +426,38 @@ type ShieldedWithdrawalVerifierDeployment struct {
 	QueuedAt        string `json:"queuedAt"`
 }
 
+type AccountAbstractionDeploymentInput struct {
+	AppID             string `json:"-"`
+	KeyID             string `json:"-"`
+	Name              string `json:"name"`
+	ChainID           int64  `json:"chainId"`
+	EntryPointAddress string `json:"entryPointAddress"`
+	BundlerURL        string `json:"bundlerUrl"`
+	Description       string `json:"description"`
+}
+
+type AccountAbstractionDeployment struct {
+	ID                        string `json:"id"`
+	AppID                     string `json:"appId"`
+	KeyID                     string `json:"keyId,omitempty"`
+	Name                      string `json:"name"`
+	ChainID                   int64  `json:"chainId"`
+	Description               string `json:"description"`
+	Status                    string `json:"status"`
+	ContractAddress           string `json:"contractAddress,omitempty"`
+	TransactionHash           string `json:"transactionHash,omitempty"`
+	EntryPointAddress         string `json:"entryPointAddress,omitempty"`
+	EntryPointTransactionHash string `json:"entryPointTransactionHash,omitempty"`
+	FactoryAddress            string `json:"factoryAddress,omitempty"`
+	FactoryTransactionHash    string `json:"factoryTransactionHash,omitempty"`
+	BundlerURL                string `json:"bundlerUrl,omitempty"`
+	Version                   string `json:"version"`
+	Error                     string `json:"error,omitempty"`
+	CreatedAt                 string `json:"createdAt"`
+	UpdatedAt                 string `json:"updatedAt"`
+	QueuedAt                  string `json:"queuedAt"`
+}
+
 type ZKProofSubmissionInput struct {
 	AppID         string `json:"-"`
 	KeyID         string `json:"-"`
@@ -556,6 +588,13 @@ type Store interface {
 	MarkShieldedWithdrawalVerifierDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
 	MarkShieldedWithdrawalVerifierDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error
 	MarkShieldedWithdrawalVerifierDeploymentFailed(ctx context.Context, deploymentID string, message string) error
+	CreateAccountAbstractionDeployment(ctx context.Context, input AccountAbstractionDeploymentInput) (AccountAbstractionDeployment, error)
+	ListAccountAbstractionDeployments(ctx context.Context, appID string, limit int64) ([]AccountAbstractionDeployment, error)
+	RemoveAccountAbstractionDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (AccountAbstractionDeployment, error)
+	ClaimNextAccountAbstractionDeployment(ctx context.Context) (AccountAbstractionDeployment, bool, error)
+	MarkAccountAbstractionDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
+	MarkAccountAbstractionDeploymentConfirmed(ctx context.Context, deploymentID string, result AccountAbstractionDeployment) error
+	MarkAccountAbstractionDeploymentFailed(ctx context.Context, deploymentID string, message string) error
 	CreateZKProofSubmission(ctx context.Context, input ZKProofSubmissionInput) (ZKProofSubmission, error)
 	ListZKProofSubmissions(ctx context.Context, appID string, limit int64) ([]ZKProofSubmission, error)
 	GetZKProofSubmission(ctx context.Context, appID string, id string) (ZKProofSubmission, bool, error)
