@@ -10,6 +10,8 @@ public/client-env.js
 .vinxi
 app.config.timestamp_*.js
 /engine-core/
+deployments/*.json
+!deployments/.gitkeep
 
 # Environment
 .env

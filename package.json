@@ -2,9 +2,17 @@
   "name": "gmr-engine",
   "private": true,
   "type": "module",
-  "scripts": {},
+  "scripts": {
+    "aa:deploy:horizen": "bun scripts/aa/deploy-horizen-aa.ts",
+    "aa:derive:horizen": "bun scripts/aa/derive-smart-account.ts",
+    "aa:env:horizen": "bun scripts/aa/print-env.ts",
+    "aa:smoke:horizen": "bun scripts/aa/send-smoke-userop.ts",
+    "aa:check": "rm -rf /tmp/budol-aa-check && bun build scripts/aa/deploy-horizen-aa.ts scripts/aa/derive-smart-account.ts scripts/aa/print-env.ts scripts/aa/send-smoke-userop.ts --target=bun --outdir=/tmp/budol-aa-check"
+  },
   "dependencies": {
+    "@account-abstraction/contracts": "0.8.0",
     "circomlibjs": "^0.1.7",
+    "permissionless": "0.3.7",
     "solc": "^0.8.30",
     "viem": "^2.52.2",
     "zkverifyjs": "^3.1.0"
