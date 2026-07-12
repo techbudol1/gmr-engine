@@ -167,6 +167,24 @@ func (s Server) authMe(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"app": principal.App, "key": principal.Key})
 }
 
+func (s Server) updateAppGasFree(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request struct {
+		GasFreeEnabled bool `json:"gasFreeEnabled"`
+	}
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	app, err := s.store.UpdateAppGasFree(c.Context(), principal.App.ID, request.GasFreeEnabled)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"app": app})
+}
+
 func (s Server) wallets(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {

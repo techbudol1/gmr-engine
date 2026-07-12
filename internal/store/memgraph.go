@@ -496,6 +496,39 @@ RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.stat
 	return result.(App), nil
 }
 
+func (s *MemgraphStore) UpdateAppGasFree(ctx context.Context, id string, gasFreeEnabled bool) (App, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $id})
+WHERE coalesce(a.status, "active") <> "archived"
+SET a.gasFreeEnabled = $gasFreeEnabled,
+  a.updatedAt = $now
+RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
+`, map[string]any{
+			"id":             strings.TrimSpace(id),
+			"gasFreeEnabled": gasFreeEnabled,
+			"now":            now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return appFromRecord(rows.Record()), rows.Err()
+		}
+		return nil, errors.New("project not found")
+	})
+	if err != nil {
+		return App{}, err
+	}
+	return result.(App), nil
+}
+
 func (s *MemgraphStore) ArchiveAccountApp(ctx context.Context, accountID string, id string) (App, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})

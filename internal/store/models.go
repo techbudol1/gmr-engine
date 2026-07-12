@@ -512,6 +512,7 @@ type Store interface {
 	GetApp(ctx context.Context, id string) (App, bool, error)
 	GetAccountApp(ctx context.Context, accountID string, id string) (App, bool, error)
 	UpdateAccountApp(ctx context.Context, accountID string, id string, input AppInput) (App, error)
+	UpdateAppGasFree(ctx context.Context, id string, gasFreeEnabled bool) (App, error)
 	ArchiveAccountApp(ctx context.Context, accountID string, id string) (App, error)
 	CreateProjectWallet(ctx context.Context, appID string, input ProjectWalletInput) (ProjectWallet, error)
 	ListProjectWallets(ctx context.Context, appID string, limit int64) ([]ProjectWallet, error)
