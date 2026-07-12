@@ -34,6 +34,7 @@ func appFromRecord(record *neo4j.Record) App {
 		AllowedChains:    int64SliceValue(record, "allowedChains"),
 		AllowedContracts: stringSliceValue(record, "allowedContracts"),
 		GasFreeEnabled:   boolValue(record, "gasFreeEnabled"),
+		TradingFeeBps:    intValueOr(record, "tradingFeeBps", 50),
 		RateLimitPerMin:  intValue(record, "rateLimitPerMinute"),
 		WebhookURL:       stringValue(record, "webhookUrl"),
 		CreatedAt:        stringValue(record, "createdAt"),
@@ -50,6 +51,7 @@ func appFromPrefixedRecord(record *neo4j.Record, prefix string) App {
 		AllowedChains:    int64SliceValue(record, prefix+"AllowedChains"),
 		AllowedContracts: stringSliceValue(record, prefix+"AllowedContracts"),
 		GasFreeEnabled:   boolValue(record, prefix+"GasFreeEnabled"),
+		TradingFeeBps:    intValueOr(record, prefix+"TradingFeeBps", 50),
 		RateLimitPerMin:  intValue(record, prefix+"RateLimitPerMinute"),
 		WebhookURL:       stringValue(record, prefix+"WebhookUrl"),
 		CreatedAt:        stringValue(record, prefix+"CreatedAt"),
@@ -409,6 +411,23 @@ func intValue(record *neo4j.Record, key string) int64 {
 		return int64(typed)
 	default:
 		return 0
+	}
+}
+
+func intValueOr(record *neo4j.Record, key string, fallback int64) int64 {
+	value, ok := record.Get(key)
+	if !ok || value == nil {
+		return fallback
+	}
+	switch typed := value.(type) {
+	case int64:
+		return typed
+	case int:
+		return int64(typed)
+	case float64:
+		return int64(typed)
+	default:
+		return fallback
 	}
 }
 

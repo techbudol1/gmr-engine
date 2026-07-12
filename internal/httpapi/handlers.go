@@ -185,6 +185,27 @@ func (s Server) updateAppGasFree(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"app": app})
 }
 
+func (s Server) updateAppTradingFee(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request struct {
+		TradingFeeBps int64 `json:"tradingFeeBps"`
+	}
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if request.TradingFeeBps < 0 || request.TradingFeeBps > 1000 {
+		return fiber.NewError(fiber.StatusBadRequest, "tradingFeeBps must be between 0 and 1000")
+	}
+	app, err := s.store.UpdateAppTradingFee(c.Context(), principal.App.ID, request.TradingFeeBps)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"app": app})
+}
+
 func (s Server) wallets(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {

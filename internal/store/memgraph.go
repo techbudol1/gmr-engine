@@ -227,6 +227,7 @@ func (s *MemgraphStore) CreateApp(ctx context.Context, input AppInput) (App, err
 		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
 		"gasFreeEnabled":   input.GasFreeEnabled,
+		"tradingFeeBps":    defaultTradingFeeBps(input.TradingFeeBps),
 		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 		"now":              now,
 	}
@@ -242,6 +243,7 @@ CREATE (a:EngineApp {
   allowedChains: $allowedChains,
   allowedContracts: $allowedContracts,
   gasFreeEnabled: $gasFreeEnabled,
+  tradingFeeBps: $tradingFeeBps,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
@@ -249,6 +251,7 @@ CREATE (a:EngineApp {
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
   a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -288,6 +291,7 @@ func (s *MemgraphStore) createAppWithAccount(ctx context.Context, accountID stri
 		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
 		"gasFreeEnabled":   input.GasFreeEnabled,
+		"tradingFeeBps":    defaultTradingFeeBps(input.TradingFeeBps),
 		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 		"now":              now,
 	}
@@ -304,6 +308,7 @@ CREATE (a:EngineApp {
   allowedChains: $allowedChains,
   allowedContracts: $allowedContracts,
   gasFreeEnabled: $gasFreeEnabled,
+  tradingFeeBps: $tradingFeeBps,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
@@ -312,6 +317,7 @@ MERGE (owner)-[:OWNS_ENGINE_APP]->(a)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
   a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -340,6 +346,7 @@ MATCH (a:EngineApp)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, nil)
@@ -368,6 +375,7 @@ WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, map[string]any{"accountID": strings.TrimSpace(accountID)})
@@ -395,6 +403,7 @@ MATCH (a:EngineApp {id: $id})
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"id": strings.TrimSpace(id)})
 		if err != nil {
@@ -424,6 +433,7 @@ WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"accountID": strings.TrimSpace(accountID), "id": strings.TrimSpace(id)})
 		if err != nil {
@@ -460,12 +470,14 @@ SET a.name = $name,
   a.allowedChains = $allowedChains,
   a.allowedContracts = $allowedContracts,
   a.gasFreeEnabled = $gasFreeEnabled,
+  a.tradingFeeBps = $tradingFeeBps,
   a.rateLimitPerMinute = $rateLimit,
   a.webhookUrl = $webhookUrl,
   a.updatedAt = $now
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{
 			"accountID":        strings.TrimSpace(accountID),
@@ -475,6 +487,7 @@ RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.stat
 			"allowedChains":    normalizeInt64Slice(input.AllowedChains),
 			"allowedContracts": normalizeStringSlice(input.AllowedContracts),
 			"gasFreeEnabled":   input.GasFreeEnabled,
+			"tradingFeeBps":    normalizeTradingFeeBps(input.TradingFeeBps),
 			"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
 			"webhookUrl":       strings.TrimSpace(input.WebhookURL),
 			"now":              now,
@@ -509,11 +522,46 @@ SET a.gasFreeEnabled = $gasFreeEnabled,
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
   coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
   coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{
 			"id":             strings.TrimSpace(id),
 			"gasFreeEnabled": gasFreeEnabled,
 			"now":            now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return appFromRecord(rows.Record()), rows.Err()
+		}
+		return nil, errors.New("project not found")
+	})
+	if err != nil {
+		return App{}, err
+	}
+	return result.(App), nil
+}
+
+func (s *MemgraphStore) UpdateAppTradingFee(ctx context.Context, id string, tradingFeeBps int64) (App, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $id})
+WHERE coalesce(a.status, "active") <> "archived"
+SET a.tradingFeeBps = $tradingFeeBps,
+  a.updatedAt = $now
+RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
+  coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
+`, map[string]any{
+			"id":            strings.TrimSpace(id),
+			"tradingFeeBps": normalizeTradingFeeBps(tradingFeeBps),
+			"now":           now,
 		})
 		if err != nil {
 			return nil, err
@@ -1207,6 +1255,7 @@ SET k.lastUsedAt = $now
 RETURN a.id AS appId, a.name AS appName, a.environment AS appEnvironment, coalesce(a.status, "active") AS appStatus,
   coalesce(a.allowedChains, []) AS appAllowedChains, coalesce(a.allowedContracts, []) AS appAllowedContracts,
   coalesce(a.gasFreeEnabled, false) AS appGasFreeEnabled,
+  coalesce(a.tradingFeeBps, 50) AS appTradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS appRateLimitPerMinute, coalesce(a.webhookUrl, "") AS appWebhookUrl, a.createdAt AS appCreatedAt, a.updatedAt AS appUpdatedAt,
   k.id AS id, k.appId AS keyAppId, k.name AS name, k.prefix AS prefix, k.scopes AS scopes,
   coalesce(k.allowedOrigins, []) AS allowedOrigins, coalesce(k.allowedIPs, []) AS allowedIPs,
@@ -3583,6 +3632,23 @@ func normalizeRateLimit(value int64) int64 {
 		return 10000
 	}
 	return value
+}
+
+func normalizeTradingFeeBps(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1000 {
+		return 1000
+	}
+	return value
+}
+
+func defaultTradingFeeBps(value int64) int64 {
+	if value <= 0 {
+		return 50
+	}
+	return normalizeTradingFeeBps(value)
 }
 
 func normalizeTransactionKind(value string) string {

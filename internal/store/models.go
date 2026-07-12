@@ -29,6 +29,7 @@ type App struct {
 	AllowedChains    []int64  `json:"allowedChains"`
 	AllowedContracts []string `json:"allowedContracts"`
 	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
+	TradingFeeBps    int64    `json:"tradingFeeBps"`
 	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
 	WebhookURL       string   `json:"webhookUrl"`
 	CreatedAt        string   `json:"createdAt"`
@@ -41,6 +42,7 @@ type AppInput struct {
 	AllowedChains    []int64  `json:"allowedChains"`
 	AllowedContracts []string `json:"allowedContracts"`
 	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
+	TradingFeeBps    int64    `json:"tradingFeeBps"`
 	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
 	WebhookURL       string   `json:"webhookUrl"`
 }
@@ -513,6 +515,7 @@ type Store interface {
 	GetAccountApp(ctx context.Context, accountID string, id string) (App, bool, error)
 	UpdateAccountApp(ctx context.Context, accountID string, id string, input AppInput) (App, error)
 	UpdateAppGasFree(ctx context.Context, id string, gasFreeEnabled bool) (App, error)
+	UpdateAppTradingFee(ctx context.Context, id string, tradingFeeBps int64) (App, error)
 	ArchiveAccountApp(ctx context.Context, accountID string, id string) (App, error)
 	CreateProjectWallet(ctx context.Context, appID string, input ProjectWalletInput) (ProjectWallet, error)
 	ListProjectWallets(ctx context.Context, appID string, limit int64) ([]ProjectWallet, error)

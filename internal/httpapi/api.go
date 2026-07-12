@@ -163,6 +163,7 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	v1 := app.Group("/v1")
 	v1.Get("/auth/me", server.requireScope("transactions:read"), server.authMe)
 	v1.Patch("/app/gas-free", server.requireScope("transactions:write"), server.updateAppGasFree)
+	v1.Patch("/app/trading-fee", server.requireScope("transactions:write"), server.updateAppTradingFee)
 	v1.Get("/wallets", server.requireScope("wallets:read"), server.wallets)
 	v1.Post("/wallets", server.requireScope("wallets:write"), server.createWallet)
 	v1.Get("/user-wallets", server.requireScope("wallets:read"), server.userWallets)
