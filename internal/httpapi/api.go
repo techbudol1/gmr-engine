@@ -174,6 +174,7 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	v1.Post("/erc20/transfer", server.requireScope("transactions:write"), server.erc20Transfer)
 	v1.Post("/erc20/transfer-with-permit", server.requireScope("transactions:write"), server.erc20TransferWithPermit)
 	v1.Post("/erc20/managed-transfer-with-permit", server.requireScope("transactions:write"), server.erc20ManagedTransferWithPermit)
+	v1.Post("/native/managed-transfer", server.requireScope("transactions:write"), server.managedNativeTransfer)
 	v1.Post("/transactions", server.requireScope("transactions:write"), server.enqueueTransaction)
 	v1.Get("/transactions/:id", server.requireScope("transactions:read"), server.transaction)
 	v1.Get("/zkverify/account", server.requireScope("contracts:read"), server.zkVerifyAccount)

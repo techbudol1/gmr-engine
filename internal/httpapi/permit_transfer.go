@@ -39,6 +39,22 @@ type erc20PermitTransferResult struct {
 	} `json:"transactions"`
 }
 
+type managedNativeTransferRequest struct {
+	AmountRaw string `json:"amountRaw"`
+	ChainID   int64  `json:"chainId"`
+	Owner     string `json:"owner"`
+	Recipient string `json:"recipient"`
+}
+
+type managedNativeTransferResult struct {
+	TransactionHash string `json:"transactionHash"`
+	Transactions    []struct {
+		Kind            string `json:"kind"`
+		Status          string `json:"status"`
+		TransactionHash string `json:"transactionHash"`
+	} `json:"transactions"`
+}
+
 func (s Server) erc20TransferWithPermit(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {
@@ -169,6 +185,52 @@ func (s Server) erc20ManagedTransferWithPermit(c *fiber.Ctx) error {
 	})
 }
 
+func (s Server) managedNativeTransfer(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request managedNativeTransferRequest
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if request.ChainID <= 0 {
+		return fiber.NewError(fiber.StatusBadRequest, "valid chainId is required")
+	}
+	if !isUintString(request.AmountRaw) || strings.TrimSpace(request.AmountRaw) == "0" {
+		return fiber.NewError(fiber.StatusBadRequest, "valid amountRaw is required")
+	}
+	if !evmAddressPattern.MatchString(strings.TrimSpace(request.Owner)) {
+		return fiber.NewError(fiber.StatusBadRequest, "valid managed owner is required")
+	}
+	if !evmAddressPattern.MatchString(strings.TrimSpace(request.Recipient)) {
+		return fiber.NewError(fiber.StatusBadRequest, "valid recipient is required")
+	}
+	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	result, err := s.runManagedNativeTransfer(c.Context(), principal.App.ID, request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadGateway, err.Error())
+	}
+	transactionIDs := make([]string, 0, len(result.Transactions))
+	for _, transaction := range result.Transactions {
+		if strings.TrimSpace(transaction.TransactionHash) != "" {
+			transactionIDs = append(transactionIDs, transaction.TransactionHash)
+		}
+	}
+	return c.JSON(fiber.Map{
+		"amountRaw":       strings.TrimSpace(request.AmountRaw),
+		"managed":         true,
+		"ok":              true,
+		"owner":           strings.ToLower(strings.TrimSpace(request.Owner)),
+		"recipient":       strings.ToLower(strings.TrimSpace(request.Recipient)),
+		"transactionHash": result.TransactionHash,
+		"transactionIds":  transactionIDs,
+		"transactions":    result.Transactions,
+	})
+}
+
 func (s Server) runERC20PermitTransfer(ctx context.Context, appID string, request erc20PermitTransferRequest) (erc20PermitTransferResult, string, error) {
 	wallet, ok, err := s.store.GetProjectDefaultAdminWalletSecret(ctx, appID)
 	if err != nil {
@@ -276,10 +338,59 @@ func (s Server) runERC20ManagedPermitTransfer(ctx context.Context, appID string,
 	return result, relayer.Address, nil
 }
 
+func (s Server) runManagedNativeTransfer(ctx context.Context, appID string, request managedNativeTransferRequest) (managedNativeTransferResult, error) {
+	managed, ok, err := s.store.GetActiveManagedUserWalletSecretByAddress(ctx, appID, request.Owner)
+	if err != nil {
+		return managedNativeTransferResult{}, err
+	}
+	if !ok {
+		return managedNativeTransferResult{}, errors.New("managed user wallet not found")
+	}
+	if !vaultclient.IsReference(managed.VaultWalletRef) {
+		return managedNativeTransferResult{}, errors.New("managed user wallet has no vault signer")
+	}
+	payloadMap := map[string]any{
+		"amount":         strings.TrimSpace(request.AmountRaw),
+		"chainId":        request.ChainID,
+		"recipient":      strings.TrimSpace(request.Recipient),
+		"rpcUrl":         s.cfg.ChainRPCURL,
+		"vaultAddress":   managed.Address,
+		"vaultApiKey":    s.cfg.VaultInternalKey,
+		"vaultProjectId": appID,
+		"vaultUrl":       s.cfg.VaultURL,
+		"vaultWalletRef": managed.VaultWalletRef,
+	}
+	payload, err := json.Marshal(payloadMap)
+	if err != nil {
+		return managedNativeTransferResult{}, err
+	}
+	output, err := runNativeTransferScript(ctx, payload)
+	if err != nil {
+		return managedNativeTransferResult{}, err
+	}
+	var result managedNativeTransferResult
+	if err := json.Unmarshal(output, &result); err != nil {
+		return managedNativeTransferResult{}, err
+	}
+	return result, nil
+}
+
 func runERC20PermitTransferScript(ctx context.Context, payload []byte) ([]byte, error) {
 	commandCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(commandCtx, "bun", "scripts/erc20-permit-transfer.ts")
+	cmd.Stdin = bytes.NewReader(payload)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, errors.New(strings.TrimSpace(string(output)))
+	}
+	return bytes.TrimSpace(output), nil
+}
+
+func runNativeTransferScript(ctx context.Context, payload []byte) ([]byte, error) {
+	commandCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(commandCtx, "bun", "scripts/native-transfer.ts")
 	cmd.Stdin = bytes.NewReader(payload)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
