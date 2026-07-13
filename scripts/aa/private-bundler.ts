@@ -116,6 +116,10 @@ async function handleRpc(payload: JsonRpcRequest, request: Request) {
         return rpcResult(id, await estimateUserOperationGas(payload.params));
       case "pimlico_getUserOperationGasPrice":
         return rpcResult(id, await userOperationGasPrice());
+      case "pm_getPaymasterData":
+        return rpcResult(id, await sponsorUserOperation(payload.params));
+      case "pm_getPaymasterStubData":
+        return rpcResult(id, await sponsorUserOperation(payload.params));
       case "pm_sponsorUserOperation":
         return rpcResult(id, await sponsorUserOperation(payload.params));
       case "eth_sendUserOperation":
@@ -240,6 +244,13 @@ async function sendUserOperation(params: unknown[] | undefined) {
     userOperation: rawUserOp as UserOperationInput,
     userOperationHash,
   });
+  console.log(JSON.stringify({
+    entryPoint: entryPointAddress,
+    method: "eth_sendUserOperation",
+    sender: userOperation.sender,
+    transactionHash,
+    userOperationHash,
+  }));
   return userOperationHash;
 }
 
@@ -247,7 +258,7 @@ async function getUserOperationReceipt(params: unknown[] | undefined) {
   const hash = normalizeHash(String((params || [])[0] || ""), "userOperationHash");
   const record = operations.get(hash.toLowerCase());
   if (!record) {
-    return null;
+    return getUserOperationReceiptFromLogs(hash);
   }
   const receipt = await publicClient.getTransactionReceipt({ hash: record.transactionHash }).catch(() => null);
   if (!receipt) {
@@ -285,6 +296,37 @@ async function getUserOperationReceipt(params: unknown[] | undefined) {
     sender: record.sender,
     success,
     userOpHash: record.userOperationHash,
+  };
+}
+
+async function getUserOperationReceiptFromLogs(hash: Hex) {
+  const currentBlock = await publicClient.getBlockNumber();
+  const fromBlock = currentBlock > 5000n ? currentBlock - 5000n : 0n;
+  const logs = await publicClient.getLogs({
+    address: entryPointAddress,
+    event: userOperationEvent,
+    fromBlock,
+    toBlock: currentBlock,
+  });
+  const userOpLog = logs.find(log => String(log.args.userOpHash || "").toLowerCase() === hash.toLowerCase());
+  if (!userOpLog?.transactionHash) {
+    return null;
+  }
+  const receipt = await publicClient.getTransactionReceipt({ hash: userOpLog.transactionHash }).catch(() => null);
+  if (!receipt) {
+    return null;
+  }
+  return {
+    actualGasCost: toHex(userOpLog.args.actualGasCost || 0n),
+    actualGasUsed: toHex(userOpLog.args.actualGasUsed || receipt.gasUsed),
+    entryPoint: entryPointAddress,
+    logs: receipt.logs,
+    nonce: toHex(userOpLog.args.nonce || 0n),
+    paymaster: userOpLog.args.paymaster || "0x0000000000000000000000000000000000000000",
+    receipt,
+    sender: userOpLog.args.sender,
+    success: Boolean(userOpLog.args.success),
+    userOpHash: hash,
   };
 }
 
@@ -450,7 +492,7 @@ function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string, r
 }
 
 function json(payload: unknown, request: Request, status = 200) {
-  return new Response(JSON.stringify(payload), {
+  return new Response(JSON.stringify(payload, (_key, value) => typeof value === "bigint" ? toHex(value) : value), {
     headers: {
       "content-type": "application/json",
       ...corsHeaders(request),
