@@ -19,10 +19,12 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 COPY scripts ./scripts
+COPY contracts ./contracts
 COPY --from=build /out/gmr-engine /usr/local/bin/gmr-engine
 RUN command -v bun \
     && command -v wget \
-    && test -f /app/scripts/erc20-console.ts
+    && test -f /app/scripts/erc20-console.ts \
+    && test -f /app/contracts/aa/BudolTradePaymaster.sol
 
 EXPOSE 8090
 CMD ["gmr-engine"]

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { createPublicClient, createWalletClient, decodeEventLog, formatGwei, getAddress, http, parseAbiItem, toEventHash, toHex, type Address, type Hex } from "viem";
+import { createPublicClient, createWalletClient, decodeEventLog, encodeAbiParameters, formatGwei, getAddress, http, keccak256, parseAbiItem, toEventHash, toHex, type Address, type Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { getPackedUserOperation } from "permissionless/utils";
 import { horizenTestnet, privateKeyEnv } from "./horizen-aa";
@@ -37,6 +37,10 @@ const allowedOrigins = env("HORIZEN_BUNDLER_ALLOWED_ORIGINS", "*").split(",").ma
 const defaultCallGasLimit = BigInt(env("HORIZEN_BUNDLER_DEFAULT_CALL_GAS_LIMIT", "250000"));
 const defaultVerificationGasLimit = BigInt(env("HORIZEN_BUNDLER_DEFAULT_VERIFICATION_GAS_LIMIT", "700000"));
 const defaultPreVerificationGas = BigInt(env("HORIZEN_BUNDLER_DEFAULT_PRE_VERIFICATION_GAS", "80000"));
+const paymasterAddress = optionalAddress(env("HORIZEN_AA_PAYMASTER_ADDRESS"), "HORIZEN_AA_PAYMASTER_ADDRESS");
+const paymasterVerificationGasLimit = BigInt(env("HORIZEN_AA_PAYMASTER_VERIFICATION_GAS_LIMIT", "250000"));
+const paymasterPostOpGasLimit = BigInt(env("HORIZEN_AA_PAYMASTER_POST_OP_GAS_LIMIT", "60000"));
+const paymasterValidSeconds = BigInt(env("HORIZEN_AA_PAYMASTER_VALID_SECONDS", "300"));
 
 const publicClient = createPublicClient({
   chain: horizenTestnet,
@@ -112,6 +116,8 @@ async function handleRpc(payload: JsonRpcRequest, request: Request) {
         return rpcResult(id, await estimateUserOperationGas(payload.params));
       case "pimlico_getUserOperationGasPrice":
         return rpcResult(id, await userOperationGasPrice());
+      case "pm_sponsorUserOperation":
+        return rpcResult(id, await sponsorUserOperation(payload.params));
       case "eth_sendUserOperation":
         return rpcResult(id, await sendUserOperation(payload.params));
       case "eth_getUserOperationReceipt":
@@ -156,6 +162,56 @@ async function userOperationGasPrice() {
     fast: { maxFeePerGas: toHex(gasPrice * 2n), maxPriorityFeePerGas: toHex(gasPrice) },
     slow: { maxFeePerGas: toHex(gasPrice), maxPriorityFeePerGas: toHex(gasPrice / 2n || 1n) },
     standard: { maxFeePerGas: toHex((gasPrice * 3n) / 2n), maxPriorityFeePerGas: toHex(gasPrice / 2n || 1n) },
+  };
+}
+
+async function sponsorUserOperation(params: unknown[] | undefined) {
+  if (!paymasterAddress) {
+    throw new Error("paymaster is not configured");
+  }
+  const [rawUserOp, rawEntryPoint] = params || [];
+  assertEntryPoint(rawEntryPoint);
+  const op = normalizeUserOperation(rawUserOp as UserOperationInput, true);
+  const packed = getPackedUserOperation({
+    ...op,
+    paymaster: undefined,
+    paymasterData: "0x",
+    paymasterPostOpGasLimit: undefined,
+    paymasterVerificationGasLimit: undefined,
+  });
+  const validUntil = BigInt(Math.floor(Date.now() / 1000)) + paymasterValidSeconds;
+  const sponsorHash = keccak256(encodeAbiParameters(
+    [
+      { name: "paymaster", type: "address" },
+      { name: "chainId", type: "uint256" },
+      { name: "sender", type: "address" },
+      { name: "nonce", type: "uint256" },
+      { name: "initCodeHash", type: "bytes32" },
+      { name: "callDataHash", type: "bytes32" },
+      { name: "accountGasLimits", type: "bytes32" },
+      { name: "preVerificationGas", type: "uint256" },
+      { name: "gasFees", type: "bytes32" },
+      { name: "validUntil", type: "uint256" },
+    ],
+    [
+      paymasterAddress,
+      BigInt(horizenTestnet.id),
+      op.sender,
+      op.nonce,
+      keccak256(packed.initCode),
+      keccak256(packed.callData),
+      packed.accountGasLimits,
+      packed.preVerificationGas,
+      packed.gasFees,
+      validUntil,
+    ],
+  ));
+  const signature = await account.signMessage({ message: { raw: sponsorHash } });
+  return {
+    paymaster: paymasterAddress,
+    paymasterData: `${uint256Hex(validUntil)}${signature.slice(2)}` as Hex,
+    paymasterPostOpGasLimit: toHex(paymasterPostOpGasLimit),
+    paymasterVerificationGasLimit: toHex(paymasterVerificationGasLimit),
   };
 }
 
@@ -375,6 +431,10 @@ function uint(value: unknown, fallback: bigint | undefined, label: string) {
 
 function maxBigInt(a: bigint, b: bigint) {
   return a > b ? a : b;
+}
+
+function uint256Hex(value: bigint) {
+  return toHex(value, { size: 32 }) as Hex;
 }
 
 function rpcResult(id: JsonRpcRequest["id"], result: unknown) {

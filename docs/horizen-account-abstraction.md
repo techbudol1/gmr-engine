@@ -63,6 +63,9 @@ HORIZEN_AA_ENTRYPOINT_ADDRESS=0x...
 HORIZEN_AA_ENTRYPOINT_VERSION=0.8
 HORIZEN_AA_FACTORY_ADDRESS=0x...
 HORIZEN_AA_BUNDLER_URL=<set-after-bundler-is-running>
+HORIZEN_AA_PAYMASTER_ADDRESS=<optional-gas-sponsor-paymaster>
+HORIZEN_AA_PAYMASTER_URL=<optional-paymaster-rpc-url>
+HORIZEN_AA_GAS_SPONSORED=false
 ```
 
 ## Derive a user smart wallet address
@@ -128,9 +131,32 @@ HORIZEN_AA_ENTRYPOINT_ADDRESS=0xaab43855ac951ad96ba9646e7eb7d7c39378238f
 HORIZEN_AA_ENTRYPOINT_VERSION=0.8
 HORIZEN_AA_FACTORY_ADDRESS=0xa85ab2137e77b083a615fc861af140f370a26f3e
 HORIZEN_AA_BUNDLER_URL=https://bundler.budolph.xyz
+HORIZEN_AA_PAYMASTER_ADDRESS=0x2aA3A9D58F21Fb585D78B81246a265d0d013f3b9
+HORIZEN_AA_PAYMASTER_URL=https://bundler.budolph.xyz
+HORIZEN_AA_GAS_SPONSORED=true
 ```
 
-MVP limitation: the private bundler submits UserOperations. It does not sponsor gas by itself. Gas-free smart-wallet execution still requires a paymaster or funded/deposited smart accounts.
+## Gas sponsorship paymaster
+
+BudolPH uses a restrictive ERC-4337 paymaster for smart-wallet gas sponsorship:
+
+- Paymaster: `0x2aA3A9D58F21Fb585D78B81246a265d0d013f3b9`
+- EntryPoint deposit: `0.005` testnet ETH at deployment time
+- Sponsorship signer: `0x112a348D0D09eD73602952be0D4844e3b1570e1B`
+- Sponsored token: `BUDOL` at `0x689513FB392e460C6D9225f911Fce57fe50D6DB4`
+- Sponsored recipient: project escrow `0x112a348D0D09eD73602952be0D4844e3b1570e1B`
+
+The paymaster rejects arbitrary UserOperations. It only sponsors SimpleAccount `execute(address,uint256,bytes)` calls that transfer BUDOL to the configured escrow wallet and include a short-lived Vault-signed sponsorship payload from the private bundler.
+
+Deploy a replacement paymaster:
+
+```bash
+export BUDOL_TOKEN_ADDRESS=0x689513FB392e460C6D9225f911Fce57fe50D6DB4
+export BUDOL_ESCROW_WALLET_ADDRESS=0x112a348D0D09eD73602952be0D4844e3b1570e1B
+export HORIZEN_PAYMASTER_SIGNER_ADDRESS=0x112a348D0D09eD73602952be0D4844e3b1570e1B
+export HORIZEN_PAYMASTER_INITIAL_DEPOSIT_ETH=0.005
+bun run aa:deploy-paymaster:horizen
+```
 
 ## Smoke-test a UserOperation
 
@@ -148,7 +174,7 @@ This submits a no-op UserOperation from the SimpleAccount to itself. On first us
 
 1. Deploy EntryPoint and SimpleAccountFactory.
 2. Run the private BudolPH ERC-4337 bundler against Horizen testnet.
-3. Fund a counterfactual smart account with ETH for gas.
-4. Submit a no-op or BUDOL approval UserOperation.
-5. Convert BudolPH trade escrow to UserOperation execution.
-6. Add paymaster sponsorship after basic smart-wallet execution is stable.
+3. Run the BUDOL transfer-restricted paymaster and expose `pm_sponsorUserOperation`.
+4. Submit a sponsored BUDOL escrow transfer UserOperation.
+5. Verify the API records the trade using the smart-account address as `escrowFrom`.
+6. Monitor sponsor deposit and top up the paymaster before it reaches low balance.

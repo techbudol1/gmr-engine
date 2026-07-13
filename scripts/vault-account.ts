@@ -39,7 +39,11 @@ export function createVaultAccount(request: VaultSignerRequest) {
   return toAccount({
     address,
     async signMessage({ message }) {
-      const raw = typeof message === "string" ? message : bytesToHex(message.raw);
+      const raw = typeof message === "string"
+        ? message
+        : typeof message.raw === "string"
+          ? message.raw
+          : bytesToHex(message.raw);
       const isHex = typeof raw === "string" && raw.startsWith("0x");
       const response = await callVault(vaultUrl, vaultApiKey, "/v1/sign-message", {
         walletId,
