@@ -81,17 +81,56 @@ The derived account is counterfactual until the first UserOperation deploys it t
 
 ## Bundler requirement
 
-This does not assume Alchemy or thirdweb chain support. Run a self-hosted ERC-4337 bundler pointed at:
+This does not assume Alchemy or thirdweb chain support. BudolPH ships a private ERC-4337 bundler for Horizen testnet:
+
+```bash
+export HORIZEN_AA_RPC_URL=https://horizen-testnet.rpc.caldera.xyz/http
+export HORIZEN_AA_ENTRYPOINT_ADDRESS=0xaab43855ac951ad96ba9646e7eb7d7c39378238f
+export HORIZEN_BUNDLER_PORT=8092
+
+# Preferred: Vault-backed relayer wallet.
+export HORIZEN_BUNDLER_ADDRESS=0x...
+export HORIZEN_BUNDLER_VAULT_WALLET_REF=gmr-vault:v1:...
+export HORIZEN_BUNDLER_VAULT_URL=http://localhost:8091
+export HORIZEN_BUNDLER_VAULT_API_KEY=...
+
+# Fallback for local-only testing:
+# export HORIZEN_BUNDLER_PRIVATE_KEY=0x...
+
+bun run aa:bundler:horizen
+```
+
+The bundler points at:
 
 ```text
 https://horizen-testnet.rpc.caldera.xyz/http
 ```
 
-The bundler must be configured for:
+Configured deployment values:
 
 - chain ID `2651420`
-- EntryPoint `0.8`
-- the deployed EntryPoint address from `deployments/horizen-aa-testnet.json`
+- EntryPoint `0.8`: `0xaab43855ac951ad96ba9646e7eb7d7c39378238f`
+- SimpleAccountFactory: `0xa85ab2137e77b083a615fc861af140f370a26f3e`
+
+Expose the bundler through Cloudflare Tunnel, for example:
+
+```text
+bundler.budolph.xyz -> http://localhost:8092
+```
+
+Then configure the Budol API:
+
+```env
+HORIZEN_AA_ENABLED=true
+HORIZEN_AA_CHAIN_ID=2651420
+HORIZEN_AA_RPC_URL=https://horizen-testnet.rpc.caldera.xyz/http
+HORIZEN_AA_ENTRYPOINT_ADDRESS=0xaab43855ac951ad96ba9646e7eb7d7c39378238f
+HORIZEN_AA_ENTRYPOINT_VERSION=0.8
+HORIZEN_AA_FACTORY_ADDRESS=0xa85ab2137e77b083a615fc861af140f370a26f3e
+HORIZEN_AA_BUNDLER_URL=https://bundler.budolph.xyz
+```
+
+MVP limitation: the private bundler submits UserOperations. It does not sponsor gas by itself. Gas-free smart-wallet execution still requires a paymaster or funded/deposited smart accounts.
 
 ## Smoke-test a UserOperation
 
@@ -108,8 +147,8 @@ This submits a no-op UserOperation from the SimpleAccount to itself. On first us
 ## MVP sequence
 
 1. Deploy EntryPoint and SimpleAccountFactory.
-2. Run an ERC-4337 bundler against Horizen testnet.
+2. Run the private BudolPH ERC-4337 bundler against Horizen testnet.
 3. Fund a counterfactual smart account with ETH for gas.
 4. Submit a no-op or BUDOL approval UserOperation.
 5. Convert BudolPH trade escrow to UserOperation execution.
-6. Add paymaster only after basic smart-wallet execution is stable.
+6. Add paymaster sponsorship after basic smart-wallet execution is stable.

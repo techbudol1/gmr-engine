@@ -4,10 +4,11 @@
   "type": "module",
   "scripts": {
     "aa:deploy:horizen": "bun scripts/aa/deploy-horizen-aa.ts",
+    "aa:bundler:horizen": "bun scripts/aa/private-bundler.ts",
     "aa:derive:horizen": "bun scripts/aa/derive-smart-account.ts",
     "aa:env:horizen": "bun scripts/aa/print-env.ts",
     "aa:smoke:horizen": "bun scripts/aa/send-smoke-userop.ts",
-    "aa:check": "rm -rf /tmp/budol-aa-check && bun build scripts/aa/deploy-horizen-aa.ts scripts/aa/deploy-horizen-aa-engine.ts scripts/aa/derive-smart-account.ts scripts/aa/print-env.ts scripts/aa/send-smoke-userop.ts --target=bun --outdir=/tmp/budol-aa-check"
+    "aa:check": "rm -rf /tmp/budol-aa-check && bun build scripts/aa/deploy-horizen-aa.ts scripts/aa/deploy-horizen-aa-engine.ts scripts/aa/derive-smart-account.ts scripts/aa/print-env.ts scripts/aa/send-smoke-userop.ts scripts/aa/private-bundler.ts --target=bun --outdir=/tmp/budol-aa-check"
   },
   "dependencies": {
     "@account-abstraction/contracts": "0.8.0",
