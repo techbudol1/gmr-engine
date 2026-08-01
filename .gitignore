@@ -10,6 +10,12 @@ public/client-env.js
 .vinxi
 app.config.timestamp_*.js
 /engine-core/
+/zk/shielded-trade/build/pot*.ptau
+/zk/shielded-trade/build/*_0000.zkey
+/zk/shielded-trade/build/*.r1cs
+/zk/shielded-trade/build/*.sym
+/zk/shielded-trade/build/*_js/generate_witness.js
+/zk/shielded-trade/build/*_js/witness_calculator.js
 deployments/*.json
 !deployments/.gitkeep
 

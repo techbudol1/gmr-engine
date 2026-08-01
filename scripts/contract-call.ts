@@ -49,10 +49,16 @@ const args = (fn.inputs ?? []).map((input, index) => coerceArg(request.args?.[in
 
 function coerceArg(value: string, type: string): unknown {
   const trimmed = value.trim();
-  if (type.endsWith("[]")) {
-    const base = type.slice(0, -2);
+  const arrayType = type.match(/^(.*)\[(\d*)\]$/);
+  if (arrayType) {
+    const base = arrayType[1];
+    const expectedLength = arrayType[2] ? Number(arrayType[2]) : null;
     const values = trimmed.startsWith("[") ? JSON.parse(trimmed) : trimmed.split(",").map(item => item.trim()).filter(Boolean);
-    return values.map((item: unknown) => coerceArg(String(item), base));
+    if (!Array.isArray(values)) throw new Error(`invalid ${type} argument`);
+    if (expectedLength !== null && values.length !== expectedLength) {
+      throw new Error(`${type} requires ${expectedLength} values`);
+    }
+    return values.map((item: unknown) => coerceArg(typeof item === "string" ? item : JSON.stringify(item), base));
   }
   if (type.startsWith("uint") || type.startsWith("int")) return BigInt(trimmed || "0");
   if (type === "bool") return ["1", "true", "yes", "on"].includes(trimmed.toLowerCase());

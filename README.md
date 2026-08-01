@@ -47,6 +47,10 @@ bun run aa:check
 
 See [docs/horizen-account-abstraction.md](./docs/horizen-account-abstraction.md) for ERC-4337 deployment, bundler, paymaster, and smoke-test guidance. See [docs/zk-production-ceremony.md](./docs/zk-production-ceremony.md) for the mandatory ceremony requirements before real-value privacy use.
 
+## Shielded trading
+
+See [docs/shielded-trading.md](./docs/shielded-trading.md) for the fixed-denomination vault, Poseidon/Merkle circuit, relayed private orders, batch settlement, deployment, and security boundaries.
+
 ## Security model
 
 GMR Engine stores only Vault wallet references, never project private keys. Administrative and project API keys must remain server-side. Run Engine and Vault on private network paths, restrict client origins and scopes, and use monitored wallet/contract allowlists for every production deployment.

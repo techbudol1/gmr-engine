@@ -9,14 +9,21 @@
     "aa:derive:horizen": "bun scripts/aa/derive-smart-account.ts",
     "aa:env:horizen": "bun scripts/aa/print-env.ts",
     "aa:smoke:horizen": "bun scripts/aa/send-smoke-userop.ts",
-    "aa:check": "rm -rf /tmp/budol-aa-check && bun build scripts/aa/deploy-horizen-aa.ts scripts/aa/deploy-horizen-aa-engine.ts scripts/aa/deploy-trade-paymaster.ts scripts/aa/derive-smart-account.ts scripts/aa/print-env.ts scripts/aa/send-smoke-userop.ts scripts/aa/private-bundler.ts --target=bun --outdir=/tmp/budol-aa-check"
+    "aa:check": "rm -rf /tmp/budol-aa-check && bun build scripts/aa/deploy-horizen-aa.ts scripts/aa/deploy-horizen-aa-engine.ts scripts/aa/deploy-trade-paymaster.ts scripts/aa/derive-smart-account.ts scripts/aa/print-env.ts scripts/aa/send-smoke-userop.ts scripts/aa/private-bundler.ts --target=bun --outdir=/tmp/budol-aa-check",
+    "privacy:shielded-trade:build": "./scripts/build-shielded-trade.sh",
+    "privacy:shielded-trade:deploy": "bun scripts/privacy/deploy-shielded-trade.ts",
+    "privacy:shielded-trade:test": "bun build scripts/test-shielded-trade.ts --target=node --outfile=/tmp/budol-shielded-trade-test.mjs && node /tmp/budol-shielded-trade-test.mjs"
   },
   "dependencies": {
     "@account-abstraction/contracts": "0.8.0",
+    "circomlib": "2.0.5",
     "circomlibjs": "^0.1.7",
     "permissionless": "0.3.7",
     "solc": "^0.8.30",
     "viem": "^2.52.2",
     "zkverifyjs": "^3.1.0"
+  },
+  "devDependencies": {
+    "snarkjs": "0.7.6"
   }
 }
