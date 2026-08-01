@@ -21,9 +21,11 @@ type DeployRequest = {
   escrowAddress: Address;
   feeBps: string | number;
   ownerAddress?: Address;
+  poseidonAddress?: Address;
   privateKey?: Hex;
   rpcUrl: string;
   tokenAddress: Address;
+  verifierAddress?: Address;
   vaultAddress?: Address;
   vaultApiKey?: string;
   vaultProjectId?: string;
@@ -92,24 +94,44 @@ const deploy = async (artifact: Artifact, args: readonly unknown[] = []) => {
   return { address: getAddress(receipt.contractAddress), hash };
 };
 
-const poseidonArtifact: Artifact = {
-  abi: poseidonContract.generateABI(2) as Abi,
-  bytecode: poseidonContract.createCode(2) as Hex,
-};
-const poseidon = await deploy(poseidonArtifact);
+let poseidonAddress: Address;
+let poseidonTransactionHash: Hex | undefined;
+if (request.poseidonAddress) {
+  poseidonAddress = getAddress(request.poseidonAddress);
+  const code = await publicClient.getCode({ address: poseidonAddress });
+  if (!code || code === "0x") throw new Error("poseidonAddress has no deployed code");
+} else {
+  const poseidonArtifact: Artifact = {
+    abi: poseidonContract.generateABI(2) as Abi,
+    bytecode: poseidonContract.createCode(2) as Hex,
+  };
+  const poseidon = await deploy(poseidonArtifact);
+  poseidonAddress = poseidon.address;
+  poseidonTransactionHash = poseidon.hash;
+}
 
-const verifierPath = path.resolve("zk/shielded-trade/build/ShieldedTradeVerifier.sol");
-const verifierSource = await readFile(verifierPath, "utf8");
-const verifierArtifact = compile("ShieldedTradeVerifier.sol", verifierSource, "Groth16Verifier");
-const verifier = await deploy(verifierArtifact);
+let verifierAddress: Address;
+let verifierTransactionHash: Hex | undefined;
+if (request.verifierAddress) {
+  verifierAddress = getAddress(request.verifierAddress);
+  const code = await publicClient.getCode({ address: verifierAddress });
+  if (!code || code === "0x") throw new Error("verifierAddress has no deployed code");
+} else {
+  const verifierPath = path.resolve("zk/shielded-trade/build/ShieldedTradeVerifier.sol");
+  const verifierSource = await readFile(verifierPath, "utf8");
+  const verifierArtifact = compile("ShieldedTradeVerifier.sol", verifierSource, "Groth16Verifier");
+  const verifier = await deploy(verifierArtifact);
+  verifierAddress = verifier.address;
+  verifierTransactionHash = verifier.hash;
+}
 
 const vaultPath = path.resolve("contracts/privacy/BudolShieldedTradeVault.sol");
 const vaultSource = await readFile(vaultPath, "utf8");
 const vaultArtifact = compile("BudolShieldedTradeVault.sol", vaultSource, "BudolShieldedTradeVault");
 const vault = await deploy(vaultArtifact, [
   getAddress(request.tokenAddress),
-  poseidon.address,
-  verifier.address,
+  poseidonAddress,
+  verifierAddress,
   getAddress(request.escrowAddress),
   ownerAddress,
   BigInt(request.denomination),
@@ -122,11 +144,11 @@ console.log(JSON.stringify({
   escrowAddress: getAddress(request.escrowAddress),
   feeBps: feeBps.toString(),
   ownerAddress,
-  poseidonAddress: poseidon.address,
-  poseidonTransactionHash: poseidon.hash,
+  poseidonAddress,
+  poseidonTransactionHash,
   tokenAddress: getAddress(request.tokenAddress),
   vaultAddress: vault.address,
   vaultTransactionHash: vault.hash,
-  verifierAddress: verifier.address,
-  verifierTransactionHash: verifier.hash,
+  verifierAddress,
+  verifierTransactionHash,
 }));

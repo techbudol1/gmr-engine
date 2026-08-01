@@ -30,6 +30,10 @@ requires confidential execution (TEE, FHE, or MPC) and is outside this version.
 
 One vault is required for every supported trade amount and fee schedule. With a
 0.5% fee, a 10 BUDOL order uses a 10.05 BUDOL vault denomination.
+Deploy Poseidon and the Groth16 verifier with the first vault, then pass the
+returned `poseidonAddress` and `verifierAddress` when deploying additional
+denomination vaults. This keeps one audited verifier/hasher pair and avoids two
+unnecessary deployments per amount.
 
 ## Build and verify
 
@@ -42,4 +46,3 @@ The repository artifacts are for testnet development. Before real-value use,
 run a documented multi-party ceremony (or migrate to a universal setup), pin
 artifact checksums, deploy a new verifier and vaults, and obtain an independent
 audit of the circuit, contracts, relayer, API, and note-recovery flow.
-

@@ -96,3 +96,7 @@ console.log(JSON.stringify({
   publicSignalCount: publicSignals.length,
   root: root.toString(),
 }));
+
+// snarkjs keeps a curve worker alive in some Node versions after fullProve.
+// The proof and public-signal assertions above are complete at this point.
+process.exit(0);
