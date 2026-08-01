@@ -4,7 +4,7 @@ This is the privacy model for the current BudolPH private winning-claim circuit.
 
 ## Private From Public Observers
 
-The proof does not reveal these values to ZKVerify, Arbitrum, block explorers, or normal users:
+The proof does not reveal these values to ZKVerify, Horizen, block explorers, or normal users:
 
 - which private bet note was used
 - the bettor's original note secret
@@ -23,7 +23,7 @@ These values are public:
 - `resolvedOutcome`: the winning side
 - `nullifierHash`: the one-time claim ID used to block double claims
 - the ZKVerify submission transaction and submitting ZKVerify account
-- any later ERC20 payout transfer on Arbitrum Sepolia, including recipient and amount, if the payout is sent directly on-chain
+- any later ERC20 payout transfer on Horizen, including recipient and amount, if the payout is sent directly on-chain
 
 The nullifier is not the wallet address and does not reveal the note secret, but it is linkable if reused. Reuse must be rejected.
 

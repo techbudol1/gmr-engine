@@ -9,18 +9,7 @@ BudolPH has two Groth16 circuits:
 - `private_winning_claim`: proves a user owns a winning committed market note.
 - `shielded_withdrawal`: proves a user owns a credited shielded payout note and can withdraw it.
 
-The end-to-end testnet path is implemented. On Arbitrum Sepolia, the shielded withdrawal verifier and payout pool were deployed and a verified withdrawal smoke test succeeded.
-
-Current Arbitrum Sepolia test deployment:
-
-```text
-Shielded withdrawal verifier: 0xc33db7a2f83768b870d983dd39214b222f3623de
-Shielded payout pool:         0x6704d9363ba982e33f2d0ea085bdd941af07c018
-Verifier deploy tx:           0x7e239e4c7cb1f081ff9aa8a8e8d4e971077d8cd5dce389d0cf8b97c86ad91b80
-Pool deploy tx:               0x894628a018ecb167fa87fc9ad3d5917aa1d58bc9cbf5c0460408a843dad8d826
-setVerifier tx:               0xeeeab068d5635f6d25b7c9939973f5a65473d7423be27eb3fb38feb918d442c4
-Verified withdrawal tx:        0x13ec6b49584e7901c2a9d002f5ce43deae7c3f3ea31cd80663157eccbc34ce9f
-```
+The end-to-end testnet path is implemented on Horizen Testnet. Current deployment addresses and runtime configuration are intentionally supplied by the API and Engine rather than duplicated in this procedure.
 
 The checked-in `.zkey` files are still local development artifacts. They are intentionally marked:
 

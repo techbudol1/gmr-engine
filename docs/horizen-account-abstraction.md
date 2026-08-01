@@ -84,7 +84,7 @@ The derived account is counterfactual until the first UserOperation deploys it t
 
 ## Bundler requirement
 
-This does not assume Alchemy or thirdweb chain support. BudolPH ships a private ERC-4337 bundler for Horizen testnet:
+BudolPH uses a self-hosted ERC-4337 bundler for Horizen Testnet:
 
 ```bash
 export HORIZEN_AA_RPC_URL=https://horizen-testnet.rpc.caldera.xyz/http
