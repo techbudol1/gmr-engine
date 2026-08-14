@@ -170,6 +170,10 @@ func (s Server) erc20ManagedTransferWithPermit(c *fiber.Ctx) error {
 }
 
 func (s Server) runERC20PermitTransfer(ctx context.Context, appID string, request erc20PermitTransferRequest) (erc20PermitTransferResult, string, error) {
+	rpcURL, err := s.cfg.RPCURL(request.ChainID)
+	if err != nil {
+		return erc20PermitTransferResult{}, "", err
+	}
 	wallet, ok, err := s.store.GetProjectDefaultAdminWalletSecret(ctx, appID)
 	if err != nil {
 		return erc20PermitTransferResult{}, "", err
@@ -192,7 +196,7 @@ func (s Server) runERC20PermitTransfer(ctx context.Context, appID string, reques
 		"deadline":        strings.TrimSpace(request.Deadline),
 		"owner":           strings.TrimSpace(request.Owner),
 		"recipient":       strings.TrimSpace(request.Recipient),
-		"rpcUrl":          s.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 		"r":               strings.TrimSpace(request.R),
 		"s":               strings.TrimSpace(request.S),
 		"spender":         wallet.Address,
@@ -217,6 +221,10 @@ func (s Server) runERC20PermitTransfer(ctx context.Context, appID string, reques
 }
 
 func (s Server) runERC20ManagedPermitTransfer(ctx context.Context, appID string, request erc20PermitTransferRequest) (erc20PermitTransferResult, string, error) {
+	rpcURL, err := s.cfg.RPCURL(request.ChainID)
+	if err != nil {
+		return erc20PermitTransferResult{}, "", err
+	}
 	relayer, ok, err := s.store.GetProjectDefaultAdminWalletSecret(ctx, appID)
 	if err != nil {
 		return erc20PermitTransferResult{}, "", err
@@ -254,7 +262,7 @@ func (s Server) runERC20ManagedPermitTransfer(ctx context.Context, appID string,
 		"ownerVaultUrl":       s.cfg.VaultURL,
 		"ownerVaultWalletRef": managed.VaultWalletRef,
 		"recipient":           strings.TrimSpace(request.Recipient),
-		"rpcUrl":              s.cfg.ChainRPCURL,
+		"rpcUrl":              rpcURL,
 		"spender":             relayer.Address,
 		"validateOnly":        request.ValidateOnly,
 	}

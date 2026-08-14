@@ -167,6 +167,45 @@ func (s Server) authMe(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"app": principal.App, "key": principal.Key})
 }
 
+func (s Server) updateAppGasFree(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request struct {
+		GasFreeEnabled bool `json:"gasFreeEnabled"`
+	}
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	app, err := s.store.UpdateAppGasFree(c.Context(), principal.App.ID, request.GasFreeEnabled)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"app": app})
+}
+
+func (s Server) updateAppTradingFee(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request struct {
+		TradingFeeBps int64 `json:"tradingFeeBps"`
+	}
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	if request.TradingFeeBps < 0 || request.TradingFeeBps > 1000 {
+		return fiber.NewError(fiber.StatusBadRequest, "tradingFeeBps must be between 0 and 1000")
+	}
+	app, err := s.store.UpdateAppTradingFee(c.Context(), principal.App.ID, request.TradingFeeBps)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"app": app})
+}
+
 func (s Server) wallets(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {
@@ -286,22 +325,58 @@ func (s Server) deleteUserWallet(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"wallet": wallet})
 }
 
+func (s Server) nativeTokenBalance(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	chainID, walletAddress, err := balanceQuery(c)
+	if err != nil {
+		return err
+	}
+	if err := enforceProjectPolicy(principal.App, chainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	balance, err := s.nativeBalance(c.Context(), chainID, walletAddress)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadGateway, err.Error())
+	}
+	return c.JSON(fiber.Map{
+		"balance": fiber.Map{
+			"chainId":       balance.ChainID,
+			"decimals":      balance.Decimals,
+			"raw":           balance.Raw,
+			"symbol":        balance.Symbol,
+			"value":         formatBaseUnitsExact(balance.Raw, balance.Decimals),
+			"walletAddress": strings.ToLower(walletAddress),
+		},
+	})
+}
+
+func balanceQuery(c *fiber.Ctx) (int64, string, error) {
+	chainID, err := strconv.ParseInt(strings.TrimSpace(c.Query("chainId")), 10, 64)
+	if err != nil || chainID <= 0 {
+		return 0, "", fiber.NewError(fiber.StatusBadRequest, "valid chainId is required")
+	}
+	walletAddress := strings.TrimSpace(c.Query("walletAddress"))
+	if !evmAddressPattern.MatchString(walletAddress) {
+		return 0, "", fiber.NewError(fiber.StatusBadRequest, "valid walletAddress is required")
+	}
+	return chainID, walletAddress, nil
+}
+
 func (s Server) erc20Balance(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {
 		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
 	}
-	chainID, err := strconv.ParseInt(strings.TrimSpace(c.Query("chainId")), 10, 64)
-	if err != nil || chainID <= 0 {
-		return fiber.NewError(fiber.StatusBadRequest, "valid chainId is required")
+	chainID, walletAddress, err := balanceQuery(c)
+	if err != nil {
+		return err
 	}
 	contractAddress := strings.TrimSpace(c.Query("contractAddress"))
-	walletAddress := strings.TrimSpace(c.Query("walletAddress"))
 	if !evmAddressPattern.MatchString(contractAddress) {
 		return fiber.NewError(fiber.StatusBadRequest, "valid contractAddress is required")
-	}
-	if !evmAddressPattern.MatchString(walletAddress) {
-		return fiber.NewError(fiber.StatusBadRequest, "valid walletAddress is required")
 	}
 	if err := enforceProjectPolicy(principal.App, chainID, contractAddress); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
@@ -540,6 +615,27 @@ func (s Server) createEscrowDeployment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
 }
 
+func (s Server) createMarketplaceDeployment(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request store.MarketplaceDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = principal.App.ID
+	request.KeyID = principal.Key.ID
+	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	deployment, err := s.store.CreateMarketplaceDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
 func (s Server) createPrivateClaimRegistryDeployment(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {
@@ -701,4 +797,21 @@ func enforceProjectPolicy(app store.App, chainID int64, contractAddress string) 
 		}
 	}
 	return fiber.NewError(fiber.StatusForbidden, "contract is not allowed for this project")
+}
+
+func enforceSolanaProjectPolicy(app store.App, network string) error {
+	network = strings.ToLower(strings.TrimSpace(network))
+	if len(app.AllowedSolanaNetworks) == 0 {
+		return nil
+	}
+	for _, allowedNetwork := range app.AllowedSolanaNetworks {
+		candidate := strings.ToLower(strings.TrimSpace(allowedNetwork))
+		if candidate == "mainnet-beta" {
+			candidate = "mainnet"
+		}
+		if candidate == network {
+			return nil
+		}
+	}
+	return fiber.NewError(fiber.StatusForbidden, "Solana network is not allowed for this project")
 }

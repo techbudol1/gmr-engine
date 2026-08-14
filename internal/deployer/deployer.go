@@ -66,6 +66,9 @@ func (w *Worker) processOnce(ctx context.Context) {
 	if err := w.processEscrow(ctx); err != nil {
 		log.Printf("escrow deployer error: %v", err)
 	}
+	if err := w.processMarketplace(ctx); err != nil {
+		log.Printf("marketplace deployer error: %v", err)
+	}
 	if err := w.processPrivateClaimRegistry(ctx); err != nil {
 		log.Printf("private claim registry deployer error: %v", err)
 	}
@@ -116,12 +119,30 @@ func (w *Worker) processTransaction(ctx context.Context) error {
 }
 
 func (w *Worker) markTransactionAttempt(ctx context.Context, transaction store.Transaction, message string) {
+	if isDeterministicTransactionFailure(message) {
+		_ = w.store.MarkTransactionFailed(ctx, transaction.ID, message)
+		w.sendTransactionWebhook(ctx, transaction.ID, "failed")
+		return
+	}
 	if transaction.AttemptCount < 3 {
 		_ = w.store.MarkTransactionRetry(ctx, transaction.ID, message)
 		return
 	}
 	_ = w.store.MarkTransactionFailed(ctx, transaction.ID, message)
 	w.sendTransactionWebhook(ctx, transaction.ID, "failed")
+}
+
+func isDeterministicTransactionFailure(message string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(message))
+	if normalized == "" {
+		return false
+	}
+	return strings.Contains(normalized, "execution reverted") ||
+		strings.Contains(normalized, "no rpc url configured") ||
+		strings.Contains(normalized, "note spent") ||
+		strings.Contains(normalized, "invalid proof") ||
+		strings.Contains(normalized, "invalid nullifier") ||
+		strings.Contains(normalized, "already spent")
 }
 
 func (w *Worker) sendTransactionWebhook(ctx context.Context, transactionID string, event string) {
@@ -215,6 +236,25 @@ func (w *Worker) processEscrow(ctx context.Context) error {
 		return nil
 	}
 	return w.store.MarkEscrowDeploymentConfirmed(ctx, deployment.ID, result.ContractAddress, artifact.ABI)
+}
+
+func (w *Worker) processMarketplace(ctx context.Context) error {
+	deployment, ok, err := w.store.ClaimNextMarketplaceDeployment(ctx)
+	if err != nil || !ok {
+		return err
+	}
+
+	result, artifact, err := w.deployMarketplace(ctx, deployment)
+	if err != nil {
+		_ = w.store.MarkMarketplaceDeploymentFailed(ctx, deployment.ID, err.Error())
+		return err
+	}
+	_ = w.store.MarkMarketplaceDeploymentSubmitted(ctx, deployment.ID, result.TransactionHash)
+	if result.Status != "success" {
+		_ = w.store.MarkMarketplaceDeploymentFailed(ctx, deployment.ID, "deployment transaction reverted")
+		return nil
+	}
+	return w.store.MarkMarketplaceDeploymentConfirmed(ctx, deployment.ID, result.ContractAddress, artifact.ABI)
 }
 
 func (w *Worker) processPrivateClaimRegistry(ctx context.Context) error {
@@ -349,6 +389,22 @@ func (w *Worker) deployEscrow(ctx context.Context, deployment store.EscrowDeploy
 	return result, artifact, nil
 }
 
+func (w *Worker) deployMarketplace(ctx context.Context, deployment store.MarketplaceDeployment) (deployResult, compiledArtifact, error) {
+	artifact, err := compileSolidity(ctx, deployment.SourceName, contracts.DualCurrencyMarketplaceSource(deployment.SourceName))
+	if err != nil {
+		return deployResult{}, compiledArtifact{}, err
+	}
+	result, err := w.broadcastDeployment(ctx, deployment.AppID, deployment.ChainID, artifact, []constructorArg{
+		{Kind: "address", Value: deployment.OwnerAddress},
+		{Kind: "address", Value: deployment.FeeRecipientAddress},
+		{Kind: "uint", Value: fmt.Sprintf("%d", deployment.FeeBps)},
+	})
+	if err != nil {
+		return deployResult{}, compiledArtifact{}, err
+	}
+	return result, artifact, nil
+}
+
 func (w *Worker) deployPrivateClaimRegistry(ctx context.Context, deployment store.PrivateClaimRegistryDeployment) (deployResult, compiledArtifact, error) {
 	artifact, err := compileSolidity(ctx, deployment.SourceName, contracts.PrivateClaimRegistrySource(deployment.SourceName))
 	if err != nil {
@@ -394,6 +450,10 @@ func (w *Worker) deployShieldedWithdrawalVerifier(ctx context.Context, deploymen
 }
 
 func (w *Worker) deployAccountAbstraction(ctx context.Context, deployment store.AccountAbstractionDeployment) (accountAbstractionDeployResult, error) {
+	rpcURL, err := w.cfg.RPCURL(deployment.ChainID)
+	if err != nil {
+		return accountAbstractionDeployResult{}, err
+	}
 	signerPayload, err := w.projectSignerPayload(ctx, deployment.AppID)
 	if err != nil {
 		return accountAbstractionDeployResult{}, err
@@ -401,7 +461,7 @@ func (w *Worker) deployAccountAbstraction(ctx context.Context, deployment store.
 	payloadMap := map[string]any{
 		"chainId":           deployment.ChainID,
 		"entryPointAddress": strings.TrimSpace(deployment.EntryPointAddress),
-		"rpcUrl":            w.cfg.ChainRPCURL,
+		"rpcUrl":            rpcURL,
 	}
 	for key, value := range signerPayload {
 		payloadMap[key] = value
@@ -460,6 +520,9 @@ type transactionResult struct {
 }
 
 func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction store.Transaction) (transactionResult, error) {
+	if transaction.Kind == "native_transfer" {
+		return w.broadcastNativeTransfer(ctx, transaction)
+	}
 	if transaction.Kind != "contract_write" {
 		return transactionResult{}, errors.New("unsupported transaction kind")
 	}
@@ -477,12 +540,16 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 	if err != nil {
 		return transactionResult{}, err
 	}
+	rpcURL, err := w.cfg.RPCURL(transaction.ChainID)
+	if err != nil {
+		return transactionResult{}, err
+	}
 	payload := map[string]any{
 		"action":          method,
 		"chainId":         transaction.ChainID,
 		"contractAddress": transaction.ContractAddress,
 		"mode":            "write",
-		"rpcUrl":          w.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 		"walletAddress":   transaction.WalletAddress,
 	}
 	for key, value := range signerPayload {
@@ -525,6 +592,49 @@ func (w *Worker) broadcastERC20Transaction(ctx context.Context, transaction stor
 	return result.Transactions[0], nil
 }
 
+func (w *Worker) broadcastNativeTransfer(ctx context.Context, transaction store.Transaction) (transactionResult, error) {
+	if len(transaction.Args) != 1 || strings.TrimSpace(transaction.Args[0]) == "" {
+		return transactionResult{}, errors.New("native transfer recipient is required")
+	}
+	if strings.TrimSpace(transaction.Value) == "" {
+		return transactionResult{}, errors.New("native transfer amount is required")
+	}
+	signerPayload, err := w.projectSignerPayloadForWallet(ctx, transaction.AppID, transaction.WalletAddress)
+	if err != nil {
+		return transactionResult{}, err
+	}
+	payload := map[string]any{
+		"amount": transaction.Value, "chainId": transaction.ChainID,
+		"recipient": transaction.Args[0], "rpcUrl": w.cfg.ChainRPCURL,
+	}
+	for key, value := range signerPayload {
+		payload[key] = value
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return transactionResult{}, err
+	}
+	commandCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(commandCtx, "bun", "scripts/native-transfer.ts")
+	cmd.Stdin = bytes.NewReader(body)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return transactionResult{}, fmt.Errorf("native transfer broadcast failed: %s", strings.TrimSpace(string(output)))
+	}
+	var result struct {
+		TransactionHash string `json:"transactionHash"`
+		Status          string `json:"status"`
+	}
+	if err := unmarshalCommandJSON(output, &result); err != nil {
+		return transactionResult{}, err
+	}
+	if result.TransactionHash == "" {
+		return transactionResult{}, errors.New("native transfer did not return a hash")
+	}
+	return transactionResult{TransactionHash: result.TransactionHash, Status: result.Status}, nil
+}
+
 func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction store.Transaction) (transactionResult, bool, error) {
 	var metadata struct {
 		ABI json.RawMessage `json:"abi"`
@@ -539,6 +649,10 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 	if err != nil {
 		return transactionResult{}, true, err
 	}
+	rpcURL, err := w.cfg.RPCURL(transaction.ChainID)
+	if err != nil {
+		return transactionResult{}, true, err
+	}
 	payloadMap := map[string]any{
 		"abi":             metadata.ABI,
 		"args":            transaction.Args,
@@ -546,7 +660,7 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 		"contractAddress": transaction.ContractAddress,
 		"functionName":    transaction.Method,
 		"mode":            "write",
-		"rpcUrl":          w.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 		"value":           transaction.Value,
 	}
 	for key, value := range signerPayload {
@@ -577,6 +691,10 @@ func (w *Worker) broadcastGenericTransaction(ctx context.Context, transaction st
 }
 
 func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID int64, artifact compiledArtifact, args []constructorArg) (deployResult, error) {
+	rpcURL, err := w.cfg.RPCURL(chainID)
+	if err != nil {
+		return deployResult{}, err
+	}
 	signerPayload, err := w.projectSignerPayload(ctx, appID)
 	if err != nil {
 		return deployResult{}, err
@@ -586,7 +704,7 @@ func (w *Worker) broadcastDeployment(ctx context.Context, appID string, chainID 
 		"args":     args,
 		"bytecode": artifact.Bytecode,
 		"chainId":  chainID,
-		"rpcUrl":   w.cfg.ChainRPCURL,
+		"rpcUrl":   rpcURL,
 	}
 	for key, value := range signerPayload {
 		payloadMap[key] = value
@@ -725,7 +843,7 @@ func compileSolidity(ctx context.Context, contractName string, source string) (c
 	if err != nil {
 		return compiledArtifact{}, err
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	commandCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	command, args, err := solidityCompilerCommand()
 	if err != nil {
@@ -782,6 +900,7 @@ func solidityCompilerCommand() (string, []string, error) {
 		command string
 		args    []string
 	}{
+		{command: "bun", args: []string{"scripts/compile-solidity.ts"}},
 		{command: "bun", args: []string{"./node_modules/solc/solc.js", "--standard-json"}},
 		{command: "solcjs", args: []string{"--standard-json"}},
 		{command: "solc", args: []string{"--standard-json"}},
@@ -789,7 +908,12 @@ func solidityCompilerCommand() (string, []string, error) {
 		{command: "npx", args: []string{"-y", "solc", "--standard-json"}},
 	}
 	for _, candidate := range candidates {
-		if candidate.command == "bun" && len(candidate.args) > 0 {
+		if candidate.command == "bun" && len(candidate.args) > 0 && strings.HasPrefix(candidate.args[0], ".") {
+			if _, err := os.Stat(candidate.args[0]); err != nil {
+				continue
+			}
+		}
+		if candidate.command == "bun" && len(candidate.args) > 0 && strings.HasPrefix(candidate.args[0], "scripts/") {
 			if _, err := os.Stat(candidate.args[0]); err != nil {
 				continue
 			}

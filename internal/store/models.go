@@ -22,27 +22,31 @@ type AccountSession struct {
 }
 
 type App struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Environment      string   `json:"environment"`
-	Status           string   `json:"status"`
-	AllowedChains    []int64  `json:"allowedChains"`
-	AllowedContracts []string `json:"allowedContracts"`
-	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
-	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
-	WebhookURL       string   `json:"webhookUrl"`
-	CreatedAt        string   `json:"createdAt"`
-	UpdatedAt        string   `json:"updatedAt"`
+	ID                    string   `json:"id"`
+	Name                  string   `json:"name"`
+	Environment           string   `json:"environment"`
+	Status                string   `json:"status"`
+	AllowedChains         []int64  `json:"allowedChains"`
+	AllowedSolanaNetworks []string `json:"allowedSolanaNetworks"`
+	AllowedContracts      []string `json:"allowedContracts"`
+	GasFreeEnabled        bool     `json:"gasFreeEnabled"`
+	TradingFeeBps         int64    `json:"tradingFeeBps"`
+	RateLimitPerMin       int64    `json:"rateLimitPerMinute"`
+	WebhookURL            string   `json:"webhookUrl"`
+	CreatedAt             string   `json:"createdAt"`
+	UpdatedAt             string   `json:"updatedAt"`
 }
 
 type AppInput struct {
-	Name             string   `json:"name"`
-	Environment      string   `json:"environment"`
-	AllowedChains    []int64  `json:"allowedChains"`
-	AllowedContracts []string `json:"allowedContracts"`
-	GasFreeEnabled   bool     `json:"gasFreeEnabled"`
-	RateLimitPerMin  int64    `json:"rateLimitPerMinute"`
-	WebhookURL       string   `json:"webhookUrl"`
+	Name                  string   `json:"name"`
+	Environment           string   `json:"environment"`
+	AllowedChains         []int64  `json:"allowedChains"`
+	AllowedSolanaNetworks []string `json:"allowedSolanaNetworks"`
+	AllowedContracts      []string `json:"allowedContracts"`
+	GasFreeEnabled        bool     `json:"gasFreeEnabled"`
+	TradingFeeBps         int64    `json:"tradingFeeBps"`
+	RateLimitPerMin       int64    `json:"rateLimitPerMinute"`
+	WebhookURL            string   `json:"webhookUrl"`
 }
 
 type ImportedContractInput struct {
@@ -333,6 +337,39 @@ type EscrowDeployment struct {
 	QueuedAt        string `json:"queuedAt"`
 }
 
+type MarketplaceDeploymentInput struct {
+	AppID               string `json:"-"`
+	KeyID               string `json:"-"`
+	Name                string `json:"name"`
+	OwnerAddress        string `json:"ownerAddress"`
+	FeeRecipientAddress string `json:"feeRecipientAddress"`
+	FeeBps              int64  `json:"feeBps"`
+	ChainID             int64  `json:"chainId"`
+	Description         string `json:"description"`
+}
+
+type MarketplaceDeployment struct {
+	ID                  string `json:"id"`
+	AppID               string `json:"appId"`
+	KeyID               string `json:"keyId,omitempty"`
+	Name                string `json:"name"`
+	OwnerAddress        string `json:"ownerAddress"`
+	FeeRecipientAddress string `json:"feeRecipientAddress"`
+	FeeBps              int64  `json:"feeBps"`
+	ChainID             int64  `json:"chainId"`
+	Description         string `json:"description"`
+	Status              string `json:"status"`
+	ContractAddress     string `json:"contractAddress,omitempty"`
+	TransactionHash     string `json:"transactionHash,omitempty"`
+	Error               string `json:"error,omitempty"`
+	SourceName          string `json:"sourceName"`
+	SourceCode          string `json:"sourceCode"`
+	ABI                 string `json:"abi"`
+	CreatedAt           string `json:"createdAt"`
+	UpdatedAt           string `json:"updatedAt"`
+	QueuedAt            string `json:"queuedAt"`
+}
+
 type PrivateClaimRegistryDeploymentInput struct {
 	AppID           string `json:"-"`
 	KeyID           string `json:"-"`
@@ -512,6 +549,8 @@ type Store interface {
 	GetApp(ctx context.Context, id string) (App, bool, error)
 	GetAccountApp(ctx context.Context, accountID string, id string) (App, bool, error)
 	UpdateAccountApp(ctx context.Context, accountID string, id string, input AppInput) (App, error)
+	UpdateAppGasFree(ctx context.Context, id string, gasFreeEnabled bool) (App, error)
+	UpdateAppTradingFee(ctx context.Context, id string, tradingFeeBps int64) (App, error)
 	ArchiveAccountApp(ctx context.Context, accountID string, id string) (App, error)
 	CreateProjectWallet(ctx context.Context, appID string, input ProjectWalletInput) (ProjectWallet, error)
 	ListProjectWallets(ctx context.Context, appID string, limit int64) ([]ProjectWallet, error)
@@ -567,6 +606,13 @@ type Store interface {
 	MarkEscrowDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
 	MarkEscrowDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error
 	MarkEscrowDeploymentFailed(ctx context.Context, deploymentID string, message string) error
+	CreateMarketplaceDeployment(ctx context.Context, input MarketplaceDeploymentInput) (MarketplaceDeployment, error)
+	ListMarketplaceDeployments(ctx context.Context, appID string, limit int64) ([]MarketplaceDeployment, error)
+	RemoveMarketplaceDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (MarketplaceDeployment, error)
+	ClaimNextMarketplaceDeployment(ctx context.Context) (MarketplaceDeployment, bool, error)
+	MarkMarketplaceDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
+	MarkMarketplaceDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error
+	MarkMarketplaceDeploymentFailed(ctx context.Context, deploymentID string, message string) error
 	CreatePrivateClaimRegistryDeployment(ctx context.Context, input PrivateClaimRegistryDeploymentInput) (PrivateClaimRegistryDeployment, error)
 	ListPrivateClaimRegistryDeployments(ctx context.Context, appID string, limit int64) ([]PrivateClaimRegistryDeployment, error)
 	RemovePrivateClaimRegistryDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (PrivateClaimRegistryDeployment, error)

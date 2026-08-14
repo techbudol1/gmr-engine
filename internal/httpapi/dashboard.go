@@ -192,6 +192,10 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load escrow deployments")
 	}
+	marketplaceDeployments, err := s.store.ListMarketplaceDeployments(c.Context(), app.ID, 50)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load marketplace deployments")
+	}
 	privateClaimRegistryDeployments, err := s.store.ListPrivateClaimRegistryDeployments(c.Context(), app.ID, 50)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load private claim registry deployments")
@@ -216,7 +220,7 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "accountAbstractionDeployments": accountAbstractionDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
+	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "marketplaceDeployments": marketplaceDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "accountAbstractionDeployments": accountAbstractionDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
 }
 
 func (s Server) dashboardCreateAPIKey(c *fiber.Ctx) error {
@@ -429,6 +433,50 @@ func (s Server) dashboardDeleteEscrowDeployment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusUnauthorized, "login required")
 	}
 	deployment, err := s.store.RemoveEscrowDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusNotFound, err.Error())
+	}
+	return c.JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardMarketplaceDeployments(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	deployments, err := s.store.ListMarketplaceDeployments(c.Context(), app.ID, queryLimit(c))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load marketplace deployments")
+	}
+	return c.JSON(fiber.Map{"marketplaceDeployments": deployments})
+}
+
+func (s Server) dashboardCreateMarketplaceDeployment(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	var request store.MarketplaceDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = app.ID
+	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	deployment, err := s.store.CreateMarketplaceDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardDeleteMarketplaceDeployment(c *fiber.Ctx) error {
+	account, ok := c.Locals(accountLocalKey).(store.Account)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "login required")
+	}
+	deployment, err := s.store.RemoveMarketplaceDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
@@ -1000,11 +1048,15 @@ type erc20ActionResult struct {
 }
 
 func (s Server) erc20ConsoleRead(ctx context.Context, deployment store.ERC20Deployment, walletAddress string) (erc20ConsoleToken, error) {
+	rpcURL, err := s.cfg.RPCURL(deployment.ChainID)
+	if err != nil {
+		return erc20ConsoleToken{}, err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"chainId":         deployment.ChainID,
 		"contractAddress": deployment.ContractAddress,
 		"mode":            "read",
-		"rpcUrl":          s.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 		"walletAddress":   walletAddress,
 	})
 	if err != nil {
@@ -1023,6 +1075,10 @@ func (s Server) erc20ConsoleRead(ctx context.Context, deployment store.ERC20Depl
 }
 
 func (s Server) runContractRead(ctx context.Context, request contractCallRequest) (json.RawMessage, error) {
+	rpcURL, err := s.cfg.RPCURL(request.ChainID)
+	if err != nil {
+		return nil, err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"abi":             json.RawMessage(request.ABI),
 		"args":            request.Args,
@@ -1030,7 +1086,7 @@ func (s Server) runContractRead(ctx context.Context, request contractCallRequest
 		"contractAddress": request.ContractAddress,
 		"functionName":    request.FunctionName,
 		"mode":            "read",
-		"rpcUrl":          s.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 	})
 	if err != nil {
 		return nil, err
@@ -1061,12 +1117,16 @@ func (s Server) erc20ConsoleWrite(ctx context.Context, deployment store.ERC20Dep
 	if err != nil {
 		return erc20ActionResult{}, err
 	}
+	rpcURL, err := s.cfg.RPCURL(deployment.ChainID)
+	if err != nil {
+		return erc20ActionResult{}, err
+	}
 	payload := map[string]any{
 		"action":          action,
 		"chainId":         deployment.ChainID,
 		"contractAddress": deployment.ContractAddress,
 		"mode":            "write",
-		"rpcUrl":          s.cfg.ChainRPCURL,
+		"rpcUrl":          rpcURL,
 		"walletAddress":   wallet.Address,
 	}
 	for key, value := range signerPayload {

@@ -9,6 +9,18 @@ import (
 //go:embed shielded_withdrawal_verifier.sol
 var shieldedWithdrawalVerifierSolidity string
 
+//go:embed dual_currency_marketplace.sol
+var dualCurrencyMarketplaceSolidity string
+
+func DualCurrencyMarketplaceSource(contractName string) string {
+	return strings.Replace(
+		dualCurrencyMarketplaceSolidity,
+		"contract DualCurrencyMarketplace",
+		"contract "+contractName,
+		1,
+	)
+}
+
 func ERC20Source(contractName string, name string, symbol string, decimals int64) string {
 	return fmt.Sprintf(`// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
@@ -585,6 +597,108 @@ contract %s {
             require(token.transfer(feeRecipient, relayerFee), "fee failed");
         }
         emit Withdrawn(noteCommitment, nullifierHash, recipient, relayer);
+    }
+}
+`, contractName)
+}
+
+// PrivacyAccessPassSource returns the ZEN/tZEN fee collector used by the three
+// paid privacy actions. A receipt commitment can only be paid once, and the
+// owner can later consume a nullifier to make a receipt non-replayable across
+// off-chain privacy workflows.
+func PrivacyAccessPassSource(contractName string) string {
+	return fmt.Sprintf(`// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+interface IPrivacyAccessERC20 {
+    function transfer(address to, uint256 value) external returns (bool);
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
+}
+
+contract %s {
+    IPrivacyAccessERC20 public immutable token;
+    address public owner;
+    address public treasury;
+
+    mapping(bytes32 => bool) public paidReceiptCommitments;
+    mapping(bytes32 => bool) public consumedReceiptNullifiers;
+    mapping(uint256 => bool) public allowedFees;
+
+    bool private locked;
+
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event TreasuryUpdated(address indexed previousTreasury, address indexed newTreasury);
+    event FeeAllowed(uint256 fee, bool allowed);
+    event AccessPaid(bytes32 indexed receiptCommitment, uint256 fee);
+    event ReceiptConsumed(bytes32 indexed receiptNullifier);
+    event FeesWithdrawn(address indexed recipient, uint256 amount);
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "not owner");
+        _;
+    }
+
+    modifier nonReentrant() {
+        require(!locked, "reentrant");
+        locked = true;
+        _;
+        locked = false;
+    }
+
+    constructor(address tokenAddress, address initialOwner, address initialTreasury, uint256 initialAllowedFee) {
+        require(tokenAddress != address(0), "token required");
+        require(initialOwner != address(0), "owner required");
+        require(initialTreasury != address(0), "treasury required");
+        token = IPrivacyAccessERC20(tokenAddress);
+        owner = initialOwner;
+        treasury = initialTreasury;
+        emit OwnershipTransferred(address(0), initialOwner);
+        emit TreasuryUpdated(address(0), initialTreasury);
+        if (initialAllowedFee > 0) {
+            allowedFees[initialAllowedFee] = true;
+            emit FeeAllowed(initialAllowedFee, true);
+        }
+    }
+
+    function transferOwnership(address newOwner) external onlyOwner {
+        require(newOwner != address(0), "owner required");
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+    }
+
+    function setTreasury(address newTreasury) external onlyOwner {
+        require(newTreasury != address(0), "treasury required");
+        emit TreasuryUpdated(treasury, newTreasury);
+        treasury = newTreasury;
+    }
+
+    function setAllowedFee(uint256 fee, bool allowed) external onlyOwner {
+        require(fee > 0, "fee required");
+        allowedFees[fee] = allowed;
+        emit FeeAllowed(fee, allowed);
+    }
+
+    function payAccess(bytes32 receiptCommitment, uint256 fee) external nonReentrant {
+        require(receiptCommitment != bytes32(0), "receipt required");
+        require(!paidReceiptCommitments[receiptCommitment], "receipt paid");
+        require(allowedFees[fee], "fee not allowed");
+
+        paidReceiptCommitments[receiptCommitment] = true;
+        require(token.transferFrom(msg.sender, treasury, fee), "transferFrom failed");
+        emit AccessPaid(receiptCommitment, fee);
+    }
+
+    function consumeReceipt(bytes32 receiptNullifier) external onlyOwner {
+        require(receiptNullifier != bytes32(0), "nullifier required");
+        require(!consumedReceiptNullifiers[receiptNullifier], "receipt consumed");
+        consumedReceiptNullifiers[receiptNullifier] = true;
+        emit ReceiptConsumed(receiptNullifier);
+    }
+
+    function withdrawAccidentalFees(address recipient, uint256 amount) external onlyOwner nonReentrant {
+        require(recipient != address(0), "recipient required");
+        require(token.transfer(recipient, amount), "transfer failed");
+        emit FeesWithdrawn(recipient, amount);
     }
 }
 `, contractName)

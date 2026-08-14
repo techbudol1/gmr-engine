@@ -27,33 +27,37 @@ func accountSessionFromRecord(record *neo4j.Record) AccountSession {
 
 func appFromRecord(record *neo4j.Record) App {
 	return App{
-		ID:               stringValue(record, "id"),
-		Name:             stringValue(record, "name"),
-		Environment:      stringValue(record, "environment"),
-		Status:           stringValue(record, "status"),
-		AllowedChains:    int64SliceValue(record, "allowedChains"),
-		AllowedContracts: stringSliceValue(record, "allowedContracts"),
-		GasFreeEnabled:   boolValue(record, "gasFreeEnabled"),
-		RateLimitPerMin:  intValue(record, "rateLimitPerMinute"),
-		WebhookURL:       stringValue(record, "webhookUrl"),
-		CreatedAt:        stringValue(record, "createdAt"),
-		UpdatedAt:        stringValue(record, "updatedAt"),
+		ID:                    stringValue(record, "id"),
+		Name:                  stringValue(record, "name"),
+		Environment:           stringValue(record, "environment"),
+		Status:                stringValue(record, "status"),
+		AllowedChains:         int64SliceValue(record, "allowedChains"),
+		AllowedSolanaNetworks: stringSliceValue(record, "allowedSolanaNetworks"),
+		AllowedContracts:      stringSliceValue(record, "allowedContracts"),
+		GasFreeEnabled:        boolValue(record, "gasFreeEnabled"),
+		TradingFeeBps:         intValue(record, "tradingFeeBps"),
+		RateLimitPerMin:       intValue(record, "rateLimitPerMinute"),
+		WebhookURL:            stringValue(record, "webhookUrl"),
+		CreatedAt:             stringValue(record, "createdAt"),
+		UpdatedAt:             stringValue(record, "updatedAt"),
 	}
 }
 
 func appFromPrefixedRecord(record *neo4j.Record, prefix string) App {
 	return App{
-		ID:               stringValue(record, prefix+"Id"),
-		Name:             stringValue(record, prefix+"Name"),
-		Environment:      stringValue(record, prefix+"Environment"),
-		Status:           stringValue(record, prefix+"Status"),
-		AllowedChains:    int64SliceValue(record, prefix+"AllowedChains"),
-		AllowedContracts: stringSliceValue(record, prefix+"AllowedContracts"),
-		GasFreeEnabled:   boolValue(record, prefix+"GasFreeEnabled"),
-		RateLimitPerMin:  intValue(record, prefix+"RateLimitPerMinute"),
-		WebhookURL:       stringValue(record, prefix+"WebhookUrl"),
-		CreatedAt:        stringValue(record, prefix+"CreatedAt"),
-		UpdatedAt:        stringValue(record, prefix+"UpdatedAt"),
+		ID:                    stringValue(record, prefix+"Id"),
+		Name:                  stringValue(record, prefix+"Name"),
+		Environment:           stringValue(record, prefix+"Environment"),
+		Status:                stringValue(record, prefix+"Status"),
+		AllowedChains:         int64SliceValue(record, prefix+"AllowedChains"),
+		AllowedSolanaNetworks: stringSliceValue(record, prefix+"AllowedSolanaNetworks"),
+		AllowedContracts:      stringSliceValue(record, prefix+"AllowedContracts"),
+		GasFreeEnabled:        boolValue(record, prefix+"GasFreeEnabled"),
+		TradingFeeBps:         intValue(record, prefix+"TradingFeeBps"),
+		RateLimitPerMin:       intValue(record, prefix+"RateLimitPerMinute"),
+		WebhookURL:            stringValue(record, prefix+"WebhookUrl"),
+		CreatedAt:             stringValue(record, prefix+"CreatedAt"),
+		UpdatedAt:             stringValue(record, prefix+"UpdatedAt"),
 	}
 }
 
@@ -254,6 +258,30 @@ func escrowDeploymentFromRecord(record *neo4j.Record) EscrowDeployment {
 		CreatedAt:       stringValue(record, "createdAt"),
 		UpdatedAt:       stringValue(record, "updatedAt"),
 		QueuedAt:        stringValue(record, "queuedAt"),
+	}
+}
+
+func marketplaceDeploymentFromRecord(record *neo4j.Record) MarketplaceDeployment {
+	return MarketplaceDeployment{
+		ID:                  stringValue(record, "id"),
+		AppID:               stringValue(record, "appId"),
+		KeyID:               stringValue(record, "keyId"),
+		Name:                stringValue(record, "name"),
+		OwnerAddress:        stringValue(record, "ownerAddress"),
+		FeeRecipientAddress: stringValue(record, "feeRecipientAddress"),
+		FeeBps:              intValue(record, "feeBps"),
+		ChainID:             intValue(record, "chainId"),
+		Description:         stringValue(record, "description"),
+		Status:              stringValue(record, "status"),
+		ContractAddress:     stringValue(record, "contractAddress"),
+		TransactionHash:     stringValue(record, "transactionHash"),
+		Error:               stringValue(record, "error"),
+		SourceName:          stringValue(record, "sourceName"),
+		SourceCode:          stringValue(record, "sourceCode"),
+		ABI:                 stringValue(record, "abi"),
+		CreatedAt:           stringValue(record, "createdAt"),
+		UpdatedAt:           stringValue(record, "updatedAt"),
+		QueuedAt:            stringValue(record, "queuedAt"),
 	}
 }
 

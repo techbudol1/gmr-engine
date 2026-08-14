@@ -246,7 +246,7 @@ func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, wal
 	tokenDecimals := map[string]int64{}
 	tokenSymbols := map[string]string{}
 	for _, deployment := range deployments {
-		if deployment.Status != "confirmed" || strings.TrimSpace(deployment.ContractAddress) == "" {
+		if deployment.ChainID != chainID || deployment.Status != "confirmed" || strings.TrimSpace(deployment.ContractAddress) == "" {
 			continue
 		}
 		token, err := s.erc20ConsoleRead(ctx, deployment, walletAddress)
@@ -269,7 +269,7 @@ func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, wal
 	transfers := []dashboardTransfer{}
 	hasMore := false
 	if includeTransfers && len(contractAddresses) > 0 {
-		transfers, hasMore, _ = s.walletERC20Transfers(ctx, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
+		transfers, hasMore, _ = s.walletERC20Transfers(ctx, chainID, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
 	}
 	return dashboardWalletDetail{
 		Wallet:        wallet,
@@ -282,7 +282,7 @@ func (s Server) walletDetail(ctx context.Context, app store.App, wallet any, wal
 
 func (s Server) nativeBalance(ctx context.Context, chainID int64, walletAddress string) (dashboardBalance, error) {
 	var result string
-	if err := s.rpc(ctx, "eth_getBalance", []any{walletAddress, "latest"}, &result); err != nil {
+	if err := s.rpc(ctx, chainID, "eth_getBalance", []any{walletAddress, "latest"}, &result); err != nil {
 		return dashboardBalance{}, err
 	}
 	value, ok := new(big.Int).SetString(strings.TrimPrefix(result, "0x"), 16)
@@ -298,15 +298,19 @@ func (s Server) nativeBalance(ctx context.Context, chainID int64, walletAddress 
 	}, nil
 }
 
-func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
-	if !strings.Contains(strings.ToLower(s.cfg.ChainRPCURL), "alchemy") {
-		return s.walletERC20TransfersFromLogs(ctx, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
+func (s Server) walletERC20Transfers(ctx context.Context, chainID int64, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
+	rpcURL, err := s.cfg.RPCURL(chainID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !strings.Contains(strings.ToLower(rpcURL), "alchemy") {
+		return s.walletERC20TransfersFromLogs(ctx, chainID, walletAddress, contractAddresses, tokenDecimals, tokenSymbols, page, limit)
 	}
 	fetchLimit := page*limit + 1
 	if fetchLimit < limit+1 {
 		fetchLimit = limit + 1
 	}
-	inbound, _ := s.assetTransfers(ctx, map[string]any{
+	inbound, _ := s.assetTransfers(ctx, chainID, map[string]any{
 		"category":          []string{"erc20"},
 		"contractAddresses": contractAddresses,
 		"fromBlock":         "0x0",
@@ -315,7 +319,7 @@ func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, 
 		"toAddress":         walletAddress,
 		"withMetadata":      false,
 	})
-	outbound, _ := s.assetTransfers(ctx, map[string]any{
+	outbound, _ := s.assetTransfers(ctx, chainID, map[string]any{
 		"category":          []string{"erc20"},
 		"contractAddresses": contractAddresses,
 		"fromAddress":       walletAddress,
@@ -348,7 +352,7 @@ func (s Server) walletERC20Transfers(ctx context.Context, walletAddress string, 
 	return selected, hasMore, nil
 }
 
-func (s Server) walletERC20TransfersFromLogs(ctx context.Context, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
+func (s Server) walletERC20TransfersFromLogs(ctx context.Context, chainID int64, walletAddress string, contractAddresses []string, tokenDecimals map[string]int64, tokenSymbols map[string]string, page int, limit int) ([]dashboardTransfer, bool, error) {
 	addressTopic := evmAddressTopic(walletAddress)
 	if addressTopic == "" {
 		return []dashboardTransfer{}, false, nil
@@ -363,8 +367,8 @@ func (s Server) walletERC20TransfersFromLogs(ctx context.Context, walletAddress 
 		if contractAddress == "" {
 			continue
 		}
-		inbound, _ := s.transferLogs(ctx, walletAddress, contractAddress, []any{erc20TransferTopic, nil, addressTopic}, tokenDecimals, tokenSymbols)
-		outbound, _ := s.transferLogs(ctx, walletAddress, contractAddress, []any{erc20TransferTopic, addressTopic}, tokenDecimals, tokenSymbols)
+		inbound, _ := s.transferLogs(ctx, chainID, walletAddress, contractAddress, []any{erc20TransferTopic, nil, addressTopic}, tokenDecimals, tokenSymbols)
+		outbound, _ := s.transferLogs(ctx, chainID, walletAddress, contractAddress, []any{erc20TransferTopic, addressTopic}, tokenDecimals, tokenSymbols)
 		combined = append(combined, inbound...)
 		combined = append(combined, outbound...)
 	}
@@ -392,7 +396,7 @@ func (s Server) walletERC20TransfersFromLogs(ctx context.Context, walletAddress 
 
 const erc20TransferTopic = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
 
-func (s Server) transferLogs(ctx context.Context, walletAddress string, contractAddress string, topics []any, tokenDecimals map[string]int64, tokenSymbols map[string]string) ([]dashboardTransfer, error) {
+func (s Server) transferLogs(ctx context.Context, chainID int64, walletAddress string, contractAddress string, topics []any, tokenDecimals map[string]int64, tokenSymbols map[string]string) ([]dashboardTransfer, error) {
 	var logs []struct {
 		Address          string   `json:"address"`
 		BlockNumber      string   `json:"blockNumber"`
@@ -402,7 +406,7 @@ func (s Server) transferLogs(ctx context.Context, walletAddress string, contract
 		TransactionIndex string   `json:"transactionIndex"`
 		LogIndex         string   `json:"logIndex"`
 	}
-	err := s.rpc(ctx, "eth_getLogs", []any{map[string]any{
+	err := s.rpc(ctx, chainID, "eth_getLogs", []any{map[string]any{
 		"address":   contractAddress,
 		"fromBlock": "0x0",
 		"toBlock":   "latest",
@@ -445,7 +449,7 @@ func (s Server) transferLogs(ctx context.Context, walletAddress string, contract
 	return transfers, nil
 }
 
-func (s Server) assetTransfers(ctx context.Context, params map[string]any) ([]dashboardTransfer, error) {
+func (s Server) assetTransfers(ctx context.Context, chainID int64, params map[string]any) ([]dashboardTransfer, error) {
 	var response struct {
 		Transfers []struct {
 			BlockNum    string `json:"blockNum"`
@@ -461,7 +465,7 @@ func (s Server) assetTransfers(ctx context.Context, params map[string]any) ([]da
 			Value           any    `json:"value"`
 		} `json:"transfers"`
 	}
-	if err := s.rpc(ctx, "alchemy_getAssetTransfers", []any{params}, &response); err != nil {
+	if err := s.rpc(ctx, chainID, "alchemy_getAssetTransfers", []any{params}, &response); err != nil {
 		return nil, err
 	}
 	transfers := make([]dashboardTransfer, 0, len(response.Transfers))
@@ -484,7 +488,11 @@ func (s Server) assetTransfers(ctx context.Context, params map[string]any) ([]da
 	return transfers, nil
 }
 
-func (s Server) rpc(ctx context.Context, method string, params []any, result any) error {
+func (s Server) rpc(ctx context.Context, chainID int64, method string, params []any, result any) error {
+	rpcURL, err := s.cfg.RPCURL(chainID)
+	if err != nil {
+		return err
+	}
 	payload, err := json.Marshal(map[string]any{
 		"id":      1,
 		"jsonrpc": "2.0",
@@ -494,7 +502,7 @@ func (s Server) rpc(ctx context.Context, method string, params []any, result any
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, s.cfg.ChainRPCURL, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, rpcURL, bytes.NewReader(payload))
 	if err != nil {
 		return err
 	}
@@ -553,6 +561,15 @@ func nativeSymbol(chainID int64) string {
 }
 
 func formatBaseUnits(raw string, decimals int64) string {
+	formatted := formatBaseUnitsExact(raw, decimals)
+	parts := strings.SplitN(formatted, ".", 2)
+	if len(parts) != 2 || len(parts[1]) <= 6 {
+		return formatted
+	}
+	return parts[0] + "." + parts[1][:6]
+}
+
+func formatBaseUnitsExact(raw string, decimals int64) string {
 	value, ok := new(big.Int).SetString(strings.TrimSpace(raw), 10)
 	if !ok {
 		return "0"
@@ -565,9 +582,6 @@ func formatBaseUnits(raw string, decimals int64) string {
 	}
 	fraction = strings.Repeat("0", int(decimals)-len(fraction)) + fraction
 	fraction = strings.TrimRight(fraction, "0")
-	if len(fraction) > 6 {
-		fraction = fraction[:6]
-	}
 	return whole + "." + fraction
 }
 

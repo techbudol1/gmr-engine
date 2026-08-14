@@ -221,14 +221,16 @@ func (s *MemgraphStore) CreateApp(ctx context.Context, input AppInput) (App, err
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	params := map[string]any{
-		"id":               uuid.NewString(),
-		"name":             name,
-		"environment":      normalizeEnvironment(input.Environment),
-		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
-		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
-		"gasFreeEnabled":   input.GasFreeEnabled,
-		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
-		"now":              now,
+		"id":                    uuid.NewString(),
+		"name":                  name,
+		"environment":           normalizeEnvironment(input.Environment),
+		"allowedChains":         normalizeInt64Slice(input.AllowedChains),
+		"allowedSolanaNetworks": normalizeStringSlice(input.AllowedSolanaNetworks),
+		"allowedContracts":      normalizeStringSlice(input.AllowedContracts),
+		"gasFreeEnabled":        input.GasFreeEnabled,
+		"tradingFeeBps":         defaultTradingFeeBps(input.TradingFeeBps),
+		"rateLimit":             normalizeRateLimit(input.RateLimitPerMin),
+		"now":                   now,
 	}
 	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
@@ -240,15 +242,17 @@ CREATE (a:EngineApp {
   environment: $environment,
   status: "active",
   allowedChains: $allowedChains,
+  allowedSolanaNetworks: $allowedSolanaNetworks,
   allowedContracts: $allowedContracts,
   gasFreeEnabled: $gasFreeEnabled,
+  tradingFeeBps: $tradingFeeBps,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
 })
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
-  a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  a.allowedChains AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, a.allowedContracts AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -281,15 +285,17 @@ func (s *MemgraphStore) createAppWithAccount(ctx context.Context, accountID stri
 	environment := normalizeEnvironment(input.Environment)
 	now := time.Now().UTC().Format(time.RFC3339)
 	params := map[string]any{
-		"id":               uuid.NewString(),
-		"accountID":        accountID,
-		"name":             name,
-		"environment":      environment,
-		"allowedChains":    normalizeInt64Slice(input.AllowedChains),
-		"allowedContracts": normalizeStringSlice(input.AllowedContracts),
-		"gasFreeEnabled":   input.GasFreeEnabled,
-		"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
-		"now":              now,
+		"id":                    uuid.NewString(),
+		"accountID":             accountID,
+		"name":                  name,
+		"environment":           environment,
+		"allowedChains":         normalizeInt64Slice(input.AllowedChains),
+		"allowedSolanaNetworks": normalizeStringSlice(input.AllowedSolanaNetworks),
+		"allowedContracts":      normalizeStringSlice(input.AllowedContracts),
+		"gasFreeEnabled":        input.GasFreeEnabled,
+		"tradingFeeBps":         defaultTradingFeeBps(input.TradingFeeBps),
+		"rateLimit":             normalizeRateLimit(input.RateLimitPerMin),
+		"now":                   now,
 	}
 	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
 	defer session.Close(ctx)
@@ -302,16 +308,18 @@ CREATE (a:EngineApp {
   environment: $environment,
   status: "active",
   allowedChains: $allowedChains,
+  allowedSolanaNetworks: $allowedSolanaNetworks,
   allowedContracts: $allowedContracts,
   gasFreeEnabled: $gasFreeEnabled,
+  tradingFeeBps: $tradingFeeBps,
   rateLimitPerMinute: $rateLimit,
   createdAt: $now,
   updatedAt: $now
 })
 MERGE (owner)-[:OWNS_ENGINE_APP]->(a)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, a.status AS status,
-  a.allowedChains AS allowedChains, a.allowedContracts AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  a.allowedChains AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, a.allowedContracts AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   a.rateLimitPerMinute AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, params)
 		if err != nil {
@@ -338,8 +346,8 @@ func (s *MemgraphStore) ListApps(ctx context.Context) ([]App, error) {
 		rows, err := tx.Run(ctx, `
 MATCH (a:EngineApp)
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, nil)
@@ -366,8 +374,8 @@ func (s *MemgraphStore) ListAccountApps(ctx context.Context, accountID string) (
 MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp)
 WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 ORDER BY a.createdAt DESC
 `, map[string]any{"accountID": strings.TrimSpace(accountID)})
@@ -393,8 +401,8 @@ func (s *MemgraphStore) GetApp(ctx context.Context, id string) (App, bool, error
 		rows, err := tx.Run(ctx, `
 MATCH (a:EngineApp {id: $id})
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"id": strings.TrimSpace(id)})
 		if err != nil {
@@ -422,8 +430,8 @@ func (s *MemgraphStore) GetAccountApp(ctx context.Context, accountID string, id 
 MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp {id: $id})
 WHERE coalesce(a.status, "active") <> "archived"
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"accountID": strings.TrimSpace(accountID), "id": strings.TrimSpace(id)})
 		if err != nil {
@@ -458,26 +466,97 @@ WHERE coalesce(a.status, "active") <> "archived"
 SET a.name = $name,
   a.environment = $environment,
   a.allowedChains = $allowedChains,
+  a.allowedSolanaNetworks = $allowedSolanaNetworks,
   a.allowedContracts = $allowedContracts,
   a.gasFreeEnabled = $gasFreeEnabled,
   a.rateLimitPerMinute = $rateLimit,
   a.webhookUrl = $webhookUrl,
   a.updatedAt = $now
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{
-			"accountID":        strings.TrimSpace(accountID),
-			"id":               strings.TrimSpace(id),
-			"name":             name,
-			"environment":      normalizeEnvironment(input.Environment),
-			"allowedChains":    normalizeInt64Slice(input.AllowedChains),
-			"allowedContracts": normalizeStringSlice(input.AllowedContracts),
-			"gasFreeEnabled":   input.GasFreeEnabled,
-			"rateLimit":        normalizeRateLimit(input.RateLimitPerMin),
-			"webhookUrl":       strings.TrimSpace(input.WebhookURL),
-			"now":              now,
+			"accountID":             strings.TrimSpace(accountID),
+			"id":                    strings.TrimSpace(id),
+			"name":                  name,
+			"environment":           normalizeEnvironment(input.Environment),
+			"allowedChains":         normalizeInt64Slice(input.AllowedChains),
+			"allowedSolanaNetworks": normalizeStringSlice(input.AllowedSolanaNetworks),
+			"allowedContracts":      normalizeStringSlice(input.AllowedContracts),
+			"gasFreeEnabled":        input.GasFreeEnabled,
+			"rateLimit":             normalizeRateLimit(input.RateLimitPerMin),
+			"webhookUrl":            strings.TrimSpace(input.WebhookURL),
+			"now":                   now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return appFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("project not found")
+	})
+	if err != nil {
+		return App{}, err
+	}
+	return result.(App), nil
+}
+
+func (s *MemgraphStore) UpdateAppGasFree(ctx context.Context, id string, gasFreeEnabled bool) (App, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $id})
+WHERE coalesce(a.status, "active") <> "archived"
+SET a.gasFreeEnabled = $gasFreeEnabled,
+  a.updatedAt = $now
+RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
+  coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
+`, map[string]any{
+			"id":             strings.TrimSpace(id),
+			"gasFreeEnabled": gasFreeEnabled,
+			"now":            now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return appFromRecord(rows.Record()), rows.Err()
+		}
+		return nil, errors.New("project not found")
+	})
+	if err != nil {
+		return App{}, err
+	}
+	return result.(App), nil
+}
+
+func (s *MemgraphStore) UpdateAppTradingFee(ctx context.Context, id string, tradingFeeBps int64) (App, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $id})
+WHERE coalesce(a.status, "active") <> "archived"
+SET a.tradingFeeBps = $tradingFeeBps,
+  a.updatedAt = $now
+RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
+  coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
+`, map[string]any{
+			"id":            strings.TrimSpace(id),
+			"tradingFeeBps": normalizeTradingFeeBps(tradingFeeBps),
+			"now":           now,
 		})
 		if err != nil {
 			return nil, err
@@ -505,8 +584,8 @@ func (s *MemgraphStore) ArchiveAccountApp(ctx context.Context, accountID string,
 MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(a:EngineApp {id: $id})
 SET a.status = "archived", a.updatedAt = $now
 RETURN a.id AS id, a.name AS name, a.environment AS environment, coalesce(a.status, "active") AS status,
-  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedContracts, []) AS allowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled,
+  coalesce(a.allowedChains, []) AS allowedChains, coalesce(a.allowedSolanaNetworks, []) AS allowedSolanaNetworks, coalesce(a.allowedContracts, []) AS allowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS gasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS tradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS rateLimitPerMinute, coalesce(a.webhookUrl, "") AS webhookUrl, a.createdAt AS createdAt, a.updatedAt AS updatedAt
 `, map[string]any{"accountID": strings.TrimSpace(accountID), "id": strings.TrimSpace(id), "now": now})
 		if err != nil {
@@ -1172,8 +1251,10 @@ WHERE coalesce(a.status, "active") = "active"
   AND (coalesce(k.expiresAt, "") = "" OR k.expiresAt > $now)
 SET k.lastUsedAt = $now
 RETURN a.id AS appId, a.name AS appName, a.environment AS appEnvironment, coalesce(a.status, "active") AS appStatus,
-  coalesce(a.allowedChains, []) AS appAllowedChains, coalesce(a.allowedContracts, []) AS appAllowedContracts,
-  coalesce(a.gasFreeEnabled, false) AS appGasFreeEnabled,
+  coalesce(a.allowedChains, []) AS appAllowedChains,
+  coalesce(a.allowedSolanaNetworks, []) AS appAllowedSolanaNetworks,
+  coalesce(a.allowedContracts, []) AS appAllowedContracts,
+  coalesce(a.gasFreeEnabled, false) AS appGasFreeEnabled, coalesce(a.tradingFeeBps, 50) AS appTradingFeeBps,
   coalesce(a.rateLimitPerMinute, 60) AS appRateLimitPerMinute, coalesce(a.webhookUrl, "") AS appWebhookUrl, a.createdAt AS appCreatedAt, a.updatedAt AS appUpdatedAt,
   k.id AS id, k.appId AS keyAppId, k.name AS name, k.prefix AS prefix, k.scopes AS scopes,
   coalesce(k.allowedOrigins, []) AS allowedOrigins, coalesce(k.allowedIPs, []) AS allowedIPs,
@@ -3550,6 +3631,248 @@ func normalizeRateLimit(value int64) int64 {
 		return 10000
 	}
 	return value
+}
+
+func (s *MemgraphStore) CreateMarketplaceDeployment(ctx context.Context, input MarketplaceDeploymentInput) (MarketplaceDeployment, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "Dual Currency Marketplace"
+	}
+	if input.ChainID <= 0 {
+		return MarketplaceDeployment{}, errors.New("chainId is required")
+	}
+	ownerAddress := strings.ToLower(strings.TrimSpace(input.OwnerAddress))
+	if ownerAddress == "" {
+		return MarketplaceDeployment{}, errors.New("owner address is required")
+	}
+	feeRecipientAddress := strings.ToLower(strings.TrimSpace(input.FeeRecipientAddress))
+	if feeRecipientAddress == "" {
+		feeRecipientAddress = ownerAddress
+	}
+	if input.FeeBps < 0 || input.FeeBps > 2500 {
+		return MarketplaceDeployment{}, errors.New("feeBps must be between 0 and 2500")
+	}
+	sourceName := safeContractName(name, "Marketplace")
+	if !strings.HasSuffix(strings.ToLower(sourceName), "marketplace") {
+		sourceName += "Marketplace"
+	}
+	sourceCode := contracts.DualCurrencyMarketplaceSource(sourceName)
+	now := time.Now().UTC().Format(time.RFC3339)
+	params := map[string]any{
+		"id":                  uuid.NewString(),
+		"appID":               strings.TrimSpace(input.AppID),
+		"keyID":               strings.TrimSpace(input.KeyID),
+		"name":                name,
+		"ownerAddress":        ownerAddress,
+		"feeRecipientAddress": feeRecipientAddress,
+		"feeBps":              input.FeeBps,
+		"chainID":             input.ChainID,
+		"description":         strings.TrimSpace(input.Description),
+		"sourceName":          sourceName,
+		"sourceCode":          sourceCode,
+		"now":                 now,
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $appID})
+CREATE (d:MarketplaceDeployment {
+  id: $id, appId: $appID, keyId: $keyID, name: $name, ownerAddress: $ownerAddress,
+  feeRecipientAddress: $feeRecipientAddress, feeBps: $feeBps, chainId: $chainID,
+  description: $description, status: "queued", contractAddress: "", transactionHash: "",
+  error: "", sourceName: $sourceName, sourceCode: $sourceCode, abi: "",
+  createdAt: $now, updatedAt: $now, queuedAt: $now
+})
+MERGE (a)-[:HAS_MARKETPLACE_DEPLOYMENT]->(d)
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name,
+  d.ownerAddress AS ownerAddress, d.feeRecipientAddress AS feeRecipientAddress,
+  d.feeBps AS feeBps, d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.error, "") AS error,
+  coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  coalesce(d.abi, "") AS abi, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt
+`, params)
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return marketplaceDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("engine app not found")
+	})
+	if err != nil {
+		return MarketplaceDeployment{}, err
+	}
+	return result.(MarketplaceDeployment), nil
+}
+
+func (s *MemgraphStore) ListMarketplaceDeployments(ctx context.Context, appID string, limit int64) ([]MarketplaceDeployment, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp {id: $appID})-[:HAS_MARKETPLACE_DEPLOYMENT]->(d:MarketplaceDeployment)
+WHERE coalesce(d.hiddenFromDashboard, false) = false
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name,
+  d.ownerAddress AS ownerAddress, d.feeRecipientAddress AS feeRecipientAddress,
+  d.feeBps AS feeBps, d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.error, "") AS error,
+  coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  coalesce(d.abi, "") AS abi, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt
+ORDER BY d.createdAt DESC
+LIMIT $limit
+`, map[string]any{"appID": strings.TrimSpace(appID), "limit": limit})
+		if err != nil {
+			return nil, err
+		}
+		deployments := []MarketplaceDeployment{}
+		for rows.Next(ctx) {
+			deployments = append(deployments, marketplaceDeploymentFromRecord(rows.Record()))
+		}
+		return deployments, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]MarketplaceDeployment), nil
+}
+
+func (s *MemgraphStore) RemoveMarketplaceDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (MarketplaceDeployment, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:HAS_MARKETPLACE_DEPLOYMENT]->(d:MarketplaceDeployment {id: $deploymentID})
+WHERE coalesce(d.hiddenFromDashboard, false) = false AND NOT coalesce(d.status, "queued") IN ["deploying", "submitted"]
+SET d.hiddenFromDashboard = true, d.removedAt = $now, d.updatedAt = $now
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name,
+  d.ownerAddress AS ownerAddress, d.feeRecipientAddress AS feeRecipientAddress,
+  d.feeBps AS feeBps, d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.error, "") AS error,
+  coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  coalesce(d.abi, "") AS abi, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt
+`, map[string]any{
+			"accountID":    strings.TrimSpace(accountID),
+			"deploymentID": strings.TrimSpace(deploymentID),
+			"now":          time.Now().UTC().Format(time.RFC3339),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return marketplaceDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("removable deployment not found")
+	})
+	if err != nil {
+		return MarketplaceDeployment{}, err
+	}
+	return result.(MarketplaceDeployment), nil
+}
+
+func (s *MemgraphStore) ClaimNextMarketplaceDeployment(ctx context.Context) (MarketplaceDeployment, bool, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp)-[:HAS_MARKETPLACE_DEPLOYMENT]->(d:MarketplaceDeployment)
+WHERE coalesce(d.status, "queued") = "queued" AND coalesce(d.hiddenFromDashboard, false) = false
+WITH d ORDER BY d.createdAt ASC LIMIT 1
+SET d.status = "deploying", d.updatedAt = $now, d.error = ""
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name,
+  d.ownerAddress AS ownerAddress, d.feeRecipientAddress AS feeRecipientAddress,
+  d.feeBps AS feeBps, d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.error, "") AS error,
+  coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  coalesce(d.abi, "") AS abi, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt
+`, map[string]any{"now": time.Now().UTC().Format(time.RFC3339)})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return marketplaceDeploymentFromRecord(rows.Record()), nil
+		}
+		return nil, rows.Err()
+	})
+	if err != nil {
+		return MarketplaceDeployment{}, false, err
+	}
+	if result == nil {
+		return MarketplaceDeployment{}, false, nil
+	}
+	return result.(MarketplaceDeployment), true, nil
+}
+
+func (s *MemgraphStore) MarkMarketplaceDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error {
+	return s.updateMarketplaceDeploymentStatus(ctx, deploymentID, "submitted", transactionHash, "", "", "")
+}
+
+func (s *MemgraphStore) MarkMarketplaceDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error {
+	return s.updateMarketplaceDeploymentStatus(ctx, deploymentID, "confirmed", "", strings.ToLower(strings.TrimSpace(contractAddress)), "", abi)
+}
+
+func (s *MemgraphStore) MarkMarketplaceDeploymentFailed(ctx context.Context, deploymentID string, message string) error {
+	return s.updateMarketplaceDeploymentStatus(ctx, deploymentID, "failed", "", "", message, "")
+}
+
+func (s *MemgraphStore) updateMarketplaceDeploymentStatus(ctx context.Context, deploymentID string, status string, transactionHash string, contractAddress string, message string, abi string) error {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	_, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(ctx, `
+MATCH (d:MarketplaceDeployment {id: $deploymentID})
+SET d.status = $status, d.updatedAt = $now
+SET d.transactionHash = CASE WHEN $transactionHash <> "" THEN $transactionHash ELSE coalesce(d.transactionHash, "") END
+SET d.contractAddress = CASE WHEN $contractAddress <> "" THEN $contractAddress ELSE coalesce(d.contractAddress, "") END
+SET d.error = CASE WHEN $error <> "" THEN $error ELSE "" END
+SET d.abi = CASE WHEN $abi <> "" THEN $abi ELSE coalesce(d.abi, "") END
+RETURN d.id AS id
+`, map[string]any{
+			"deploymentID":    strings.TrimSpace(deploymentID),
+			"status":          strings.TrimSpace(status),
+			"transactionHash": strings.TrimSpace(transactionHash),
+			"contractAddress": strings.TrimSpace(contractAddress),
+			"error":           strings.TrimSpace(message),
+			"abi":             strings.TrimSpace(abi),
+			"now":             time.Now().UTC().Format(time.RFC3339),
+		})
+		return nil, err
+	})
+	return err
+}
+
+func normalizeTradingFeeBps(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	if value > 1000 {
+		return 1000
+	}
+	return value
+}
+
+func defaultTradingFeeBps(value int64) int64 {
+	if value <= 0 {
+		return 50
+	}
+	return normalizeTradingFeeBps(value)
 }
 
 func normalizeTransactionKind(value string) string {

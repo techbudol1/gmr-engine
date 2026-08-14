@@ -1,11 +1,7 @@
 import { createPublicClient, createWalletClient, defineChain, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createVaultAccount, hasVaultSigner } from "./vault-account";
-
-type ABIInput = {
-  name?: string;
-  type: string;
-};
+import { coerceABIArg, type ABIInput } from "./abi-args";
 
 type ABIFunction = {
   inputs?: ABIInput[];
@@ -45,20 +41,7 @@ const transport = http(request.rpcUrl);
 const publicClient = createPublicClient({ chain, transport });
 const fn = request.abi.find(item => item.type === "function" && item.name === request.functionName);
 if (!fn) throw new Error(`function not found in ABI: ${request.functionName}`);
-const args = (fn.inputs ?? []).map((input, index) => coerceArg(request.args?.[index] ?? "", input.type));
-
-function coerceArg(value: string, type: string): unknown {
-  const trimmed = value.trim();
-  if (type.endsWith("[]")) {
-    const base = type.slice(0, -2);
-    const values = trimmed.startsWith("[") ? JSON.parse(trimmed) : trimmed.split(",").map(item => item.trim()).filter(Boolean);
-    return values.map((item: unknown) => coerceArg(String(item), base));
-  }
-  if (type.startsWith("uint") || type.startsWith("int")) return BigInt(trimmed || "0");
-  if (type === "bool") return ["1", "true", "yes", "on"].includes(trimmed.toLowerCase());
-  if (type === "bytes" || /^bytes\d+$/.test(type)) return trimmed || "0x";
-  return trimmed;
-}
+const args = (fn.inputs ?? []).map((input, index) => coerceABIArg(request.args?.[index] ?? "", input));
 
 function stringify(value: unknown) {
   return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? item.toString() : item);
