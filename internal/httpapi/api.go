@@ -155,11 +155,11 @@ func New(cfg config.Config, engineStore store.Store) *fiber.App {
 	dashboard.Post("/projects/:id/contracts/write", server.requireAccount, server.dashboardContractWrite)
 	dashboard.Get("/contracts/erc20/:id/console", server.requireAccount, server.dashboardERC20Console)
 	dashboard.Post("/contracts/erc20/:id/actions", server.requireAccount, server.dashboardERC20Action)
-	dashboard.Post("/contracts/erc20/:id/retry", server.requireAccount, server.dashboardRetryERC20Deployment)
 	dashboard.Delete("/contracts/erc20/:id", server.requireAccount, server.dashboardDeleteERC20Deployment)
 	dashboard.Get("/projects/:id/contracts/erc1155-editions", server.requireAccount, server.dashboardERC1155EditionDeployments)
 	dashboard.Post("/projects/:id/contracts/erc1155-editions", server.requireAccount, server.dashboardCreateERC1155EditionDeployment)
 	dashboard.Delete("/contracts/erc1155-editions/:id", server.requireAccount, server.dashboardDeleteERC1155EditionDeployment)
+	dashboard.Post("/contracts/:deploymentType/:id/retry", server.requireAccount, server.dashboardRetryContractDeployment)
 	dashboard.Post("/api-keys/:id/revoke", server.requireAccount, server.dashboardRevokeAPIKey)
 	dashboard.Post("/api-keys/:id/rotate", server.requireAccount, server.dashboardRotateAPIKey)
 

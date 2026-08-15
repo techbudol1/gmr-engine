@@ -580,11 +580,12 @@ type Store interface {
 	MarkTransactionConfirmed(ctx context.Context, transactionID string, transactionHash string) error
 	MarkTransactionFailed(ctx context.Context, transactionID string, message string) error
 	MarkTransactionRetry(ctx context.Context, transactionID string, message string) error
+	RetryContractDeployment(ctx context.Context, accountID string, deploymentType string, deploymentID string) error
+	FailStaleContractDeployments(ctx context.Context, staleBefore string) (int64, error)
 	CreateERC20Deployment(ctx context.Context, input ERC20DeploymentInput) (ERC20Deployment, error)
 	ListERC20Deployments(ctx context.Context, appID string, limit int64) ([]ERC20Deployment, error)
 	DeleteQueuedERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
 	RemoveERC20DeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
-	RetryERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error)
 	ClaimNextERC20Deployment(ctx context.Context) (ERC20Deployment, bool, error)
 	MarkERC20DeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
 	MarkERC20DeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string) error

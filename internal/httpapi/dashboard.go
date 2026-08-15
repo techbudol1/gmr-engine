@@ -21,6 +21,25 @@ type dashboardLoginRequest struct {
 	Username string `json:"username"`
 }
 
+func (s Server) requireDeploymentGas(ctx context.Context, appID string, chainID int64) error {
+	wallet, ok, err := s.store.GetProjectDefaultAdminWalletSecret(ctx, appID)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load project admin wallet")
+	}
+	if !ok || strings.TrimSpace(wallet.Address) == "" {
+		return fiber.NewError(fiber.StatusConflict, "project admin wallet is not configured")
+	}
+	balance, err := s.nativeBalance(ctx, chainID, wallet.Address)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadGateway, "failed to check project admin wallet gas balance: "+err.Error())
+	}
+	raw, ok := new(big.Int).SetString(strings.TrimSpace(balance.Raw), 10)
+	if !ok || raw.Sign() <= 0 {
+		return fiber.NewError(fiber.StatusConflict, "project admin wallet has no native gas on the selected chain")
+	}
+	return nil
+}
+
 func (s Server) dashboardLogin(c *fiber.Ctx) error {
 	var request dashboardLoginRequest
 	if err := c.BodyParser(&request); err != nil {
@@ -153,6 +172,17 @@ func (s Server) dashboardUpdateProject(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
 	return c.JSON(fiber.Map{"project": app})
+}
+
+func (s Server) dashboardRetryContractDeployment(c *fiber.Ctx) error {
+	account, ok := c.Locals(accountLocalKey).(store.Account)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "login required")
+	}
+	if err := s.store.RetryContractDeployment(c.Context(), account.ID, c.Params("deploymentType"), c.Params("id")); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"ok": true})
 }
 
 func (s Server) dashboardProject(c *fiber.Ctx) error {
@@ -364,6 +394,12 @@ func (s Server) dashboardCreateERC20Deployment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
 	}
 	request.AppID = app.ID
+	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateERC20Deployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -381,18 +417,6 @@ func (s Server) dashboardDeleteERC20Deployment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, err.Error())
 	}
 	return c.JSON(fiber.Map{"deployment": deployment})
-}
-
-func (s Server) dashboardRetryERC20Deployment(c *fiber.Ctx) error {
-	account, ok := c.Locals(accountLocalKey).(store.Account)
-	if !ok {
-		return fiber.NewError(fiber.StatusUnauthorized, "login required")
-	}
-	deployment, err := s.store.RetryERC20Deployment(c.Context(), account.ID, c.Params("id"))
-	if err != nil {
-		return fiber.NewError(fiber.StatusNotFound, err.Error())
-	}
-	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
 }
 
 func (s Server) dashboardEscrowDeployments(c *fiber.Ctx) error {
@@ -419,6 +443,9 @@ func (s Server) dashboardCreateEscrowDeployment(c *fiber.Ctx) error {
 	request.AppID = app.ID
 	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateEscrowDeployment(c.Context(), request)
 	if err != nil {
@@ -464,6 +491,9 @@ func (s Server) dashboardCreateMarketplaceDeployment(c *fiber.Ctx) error {
 	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateMarketplaceDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -507,6 +537,9 @@ func (s Server) dashboardCreatePrivateClaimRegistryDeployment(c *fiber.Ctx) erro
 	request.AppID = app.ID
 	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreatePrivateClaimRegistryDeployment(c.Context(), request)
 	if err != nil {
@@ -552,6 +585,9 @@ func (s Server) dashboardCreateShieldedPayoutPoolDeployment(c *fiber.Ctx) error 
 	if err := enforceProjectPolicy(app, request.ChainID, request.TokenAddress); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateShieldedPayoutPoolDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -596,6 +632,9 @@ func (s Server) dashboardCreateShieldedWithdrawalVerifierDeployment(c *fiber.Ctx
 	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateShieldedWithdrawalVerifierDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -639,6 +678,9 @@ func (s Server) dashboardCreateAccountAbstractionDeployment(c *fiber.Ctx) error 
 	request.AppID = app.ID
 	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateAccountAbstractionDeployment(c.Context(), request)
 	if err != nil {
@@ -862,6 +904,12 @@ func (s Server) dashboardCreateERC1155EditionDeployment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
 	}
 	request.AppID = app.ID
+	if err := enforceProjectPolicy(app, request.ChainID, ""); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateERC1155EditionDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())

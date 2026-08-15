@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -1603,6 +1604,112 @@ SET t.status = $status,
 	return err
 }
 
+type contractDeploymentSpec struct {
+	label        string
+	relationship string
+}
+
+var contractDeploymentSpecs = map[string]contractDeploymentSpec{
+	"erc20":                         {label: "ERC20Deployment", relationship: "HAS_ERC20_DEPLOYMENT"},
+	"erc1155-editions":              {label: "ERC1155EditionDeployment", relationship: "HAS_ERC1155_EDITION_DEPLOYMENT"},
+	"escrow":                        {label: "EscrowDeployment", relationship: "HAS_ESCROW_DEPLOYMENT"},
+	"marketplaces":                  {label: "MarketplaceDeployment", relationship: "HAS_MARKETPLACE_DEPLOYMENT"},
+	"private-claim-registries":      {label: "PrivateClaimRegistryDeployment", relationship: "HAS_PRIVATE_CLAIM_REGISTRY_DEPLOYMENT"},
+	"shielded-payout-pools":         {label: "ShieldedPayoutPoolDeployment", relationship: "HAS_SHIELDED_PAYOUT_POOL_DEPLOYMENT"},
+	"shielded-withdrawal-verifiers": {label: "ShieldedWithdrawalVerifierDeployment", relationship: "HAS_SHIELDED_WITHDRAWAL_VERIFIER_DEPLOYMENT"},
+	"account-abstraction":           {label: "AccountAbstractionDeployment", relationship: "HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT"},
+}
+
+func lookupContractDeploymentSpec(deploymentType string) (contractDeploymentSpec, bool) {
+	spec, ok := contractDeploymentSpecs[strings.ToLower(strings.TrimSpace(deploymentType))]
+	return spec, ok
+}
+
+func (s *MemgraphStore) RetryContractDeployment(ctx context.Context, accountID string, deploymentType string, deploymentID string) error {
+	spec, ok := lookupContractDeploymentSpec(deploymentType)
+	if !ok {
+		return errors.New("unsupported contract deployment type")
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		query := fmt.Sprintf(`
+MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:%s]->(d:%s {id: $deploymentID})
+WHERE coalesce(d.hiddenFromDashboard, false) = false AND coalesce(d.status, "queued") = "failed"
+SET d.status = "queued",
+    d.error = "",
+    d.transactionHash = "",
+    d.contractAddress = "",
+    d.queuedAt = $now,
+    d.updatedAt = $now
+RETURN d.id AS id
+`, spec.relationship, spec.label)
+		rows, err := tx.Run(ctx, query, map[string]any{
+			"accountID":    strings.TrimSpace(accountID),
+			"deploymentID": strings.TrimSpace(deploymentID),
+			"now":          now,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return true, nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("failed deployment not found")
+	})
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return errors.New("failed deployment not found")
+	}
+	return nil
+}
+
+func (s *MemgraphStore) FailStaleContractDeployments(ctx context.Context, staleBefore string) (int64, error) {
+	staleBefore = strings.TrimSpace(staleBefore)
+	if staleBefore == "" {
+		return 0, errors.New("stale deployment cutoff is required")
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		var recovered int64
+		for _, spec := range contractDeploymentSpecs {
+			query := fmt.Sprintf(`
+MATCH (d:%s)
+WHERE coalesce(d.status, "queued") = "deploying" AND coalesce(d.updatedAt, "") < $staleBefore
+SET d.status = "failed",
+    d.error = "The deployment worker stopped before this attempt completed. Check the project wallet and explorer before retrying.",
+    d.updatedAt = $now
+RETURN count(d) AS recovered
+`, spec.label)
+			rows, err := tx.Run(ctx, query, map[string]any{
+				"staleBefore": staleBefore,
+				"now":         time.Now().UTC().Format(time.RFC3339),
+			})
+			if err != nil {
+				return nil, err
+			}
+			if rows.Next(ctx) {
+				recovered += intValue(rows.Record(), "recovered")
+			}
+			if err := rows.Err(); err != nil {
+				return nil, err
+			}
+		}
+		return recovered, nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return result.(int64), nil
+}
+
 func (s *MemgraphStore) CreateERC20Deployment(ctx context.Context, input ERC20DeploymentInput) (ERC20Deployment, error) {
 	name := strings.TrimSpace(input.Name)
 	symbol := strings.ToUpper(strings.TrimSpace(input.Symbol))
@@ -1792,49 +1899,6 @@ RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name, d.symbol 
 			return nil, err
 		}
 		return nil, errors.New("removable deployment not found")
-	})
-	if err != nil {
-		return ERC20Deployment{}, err
-	}
-	return result.(ERC20Deployment), nil
-}
-
-func (s *MemgraphStore) RetryERC20Deployment(ctx context.Context, accountID string, deploymentID string) (ERC20Deployment, error) {
-	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
-	defer session.Close(ctx)
-	now := time.Now().UTC().Format(time.RFC3339)
-	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
-		rows, err := tx.Run(ctx, `
-MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:HAS_ERC20_DEPLOYMENT]->(d:ERC20Deployment {id: $deploymentID})
-WHERE coalesce(d.hiddenFromDashboard, false) = false AND coalesce(d.status, "queued") = "failed"
-SET d.status = "queued",
-    d.error = "",
-    d.transactionHash = "",
-    d.contractAddress = "",
-    d.queuedAt = $now,
-    d.updatedAt = $now
-RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name, d.symbol AS symbol,
-  d.decimals AS decimals, d.initialSupply AS initialSupply, d.ownerAddress AS ownerAddress,
-  d.chainId AS chainId, coalesce(d.description, "") AS description, coalesce(d.imageUrl, "") AS imageUrl,
-  coalesce(d.socialUrls, []) AS socialUrls, coalesce(d.status, "queued") AS status,
-  coalesce(d.contractAddress, "") AS contractAddress, coalesce(d.transactionHash, "") AS transactionHash,
-  coalesce(d.error, "") AS error, coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
-  d.createdAt AS createdAt, d.updatedAt AS updatedAt, coalesce(d.queuedAt, "") AS queuedAt
-`, map[string]any{
-			"accountID":    strings.TrimSpace(accountID),
-			"deploymentID": strings.TrimSpace(deploymentID),
-			"now":          now,
-		})
-		if err != nil {
-			return nil, err
-		}
-		if rows.Next(ctx) {
-			return erc20DeploymentFromRecord(rows.Record()), nil
-		}
-		if err := rows.Err(); err != nil {
-			return nil, err
-		}
-		return nil, errors.New("failed deployment not found")
 	})
 	if err != nil {
 		return ERC20Deployment{}, err

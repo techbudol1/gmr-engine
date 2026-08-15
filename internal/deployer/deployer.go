@@ -40,6 +40,12 @@ func (w *Worker) Run(ctx context.Context) {
 	if interval <= 0 {
 		interval = 8 * time.Second
 	}
+	staleBefore := time.Now().UTC().Add(-10 * time.Minute).Format(time.RFC3339)
+	if recovered, err := w.store.FailStaleContractDeployments(ctx, staleBefore); err != nil {
+		log.Printf("failed to recover stale contract deployments: %v", err)
+	} else if recovered > 0 {
+		log.Printf("marked %d stale contract deployments as failed", recovered)
+	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

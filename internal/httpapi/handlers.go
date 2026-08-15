@@ -566,6 +566,9 @@ func (s Server) createERC20Deployment(c *fiber.Ctx) error {
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateERC20Deployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -586,6 +589,9 @@ func (s Server) createERC1155EditionDeployment(c *fiber.Ctx) error {
 	request.KeyID = principal.Key.ID
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateERC1155EditionDeployment(c.Context(), request)
 	if err != nil {
@@ -608,6 +614,9 @@ func (s Server) createEscrowDeployment(c *fiber.Ctx) error {
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateEscrowDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -628,6 +637,9 @@ func (s Server) createMarketplaceDeployment(c *fiber.Ctx) error {
 	request.KeyID = principal.Key.ID
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateMarketplaceDeployment(c.Context(), request)
 	if err != nil {
@@ -650,6 +662,9 @@ func (s Server) createPrivateClaimRegistryDeployment(c *fiber.Ctx) error {
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreatePrivateClaimRegistryDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -670,6 +685,9 @@ func (s Server) createShieldedPayoutPoolDeployment(c *fiber.Ctx) error {
 	request.KeyID = principal.Key.ID
 	if err := enforceProjectPolicy(principal.App, request.ChainID, request.TokenAddress); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateShieldedPayoutPoolDeployment(c.Context(), request)
 	if err != nil {
@@ -692,6 +710,9 @@ func (s Server) createShieldedWithdrawalVerifierDeployment(c *fiber.Ctx) error {
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
 	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
+	}
 	deployment, err := s.store.CreateShieldedWithdrawalVerifierDeployment(c.Context(), request)
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -712,6 +733,9 @@ func (s Server) createAccountAbstractionDeployment(c *fiber.Ctx) error {
 	request.KeyID = principal.Key.ID
 	if err := enforceProjectPolicy(principal.App, request.ChainID, ""); err != nil {
 		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
 	}
 	deployment, err := s.store.CreateAccountAbstractionDeployment(c.Context(), request)
 	if err != nil {
