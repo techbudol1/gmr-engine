@@ -436,6 +436,41 @@ type ShieldedPayoutPoolDeployment struct {
 	QueuedAt        string `json:"queuedAt"`
 }
 
+type PrivacyAccessPassDeploymentInput struct {
+	AppID             string `json:"-"`
+	KeyID             string `json:"-"`
+	Name              string `json:"name"`
+	TokenAddress      string `json:"tokenAddress"`
+	OwnerAddress      string `json:"ownerAddress"`
+	TreasuryAddress   string `json:"treasuryAddress"`
+	InitialAllowedFee string `json:"initialAllowedFee"`
+	ChainID           int64  `json:"chainId"`
+	Description       string `json:"description"`
+}
+
+type PrivacyAccessPassDeployment struct {
+	ID                string `json:"id"`
+	AppID             string `json:"appId"`
+	KeyID             string `json:"keyId,omitempty"`
+	Name              string `json:"name"`
+	TokenAddress      string `json:"tokenAddress"`
+	OwnerAddress      string `json:"ownerAddress"`
+	TreasuryAddress   string `json:"treasuryAddress"`
+	InitialAllowedFee string `json:"initialAllowedFee"`
+	ChainID           int64  `json:"chainId"`
+	Description       string `json:"description"`
+	Status            string `json:"status"`
+	ContractAddress   string `json:"contractAddress,omitempty"`
+	TransactionHash   string `json:"transactionHash,omitempty"`
+	Error             string `json:"error,omitempty"`
+	SourceName        string `json:"sourceName"`
+	SourceCode        string `json:"sourceCode"`
+	ABI               string `json:"abi"`
+	CreatedAt         string `json:"createdAt"`
+	UpdatedAt         string `json:"updatedAt"`
+	QueuedAt          string `json:"queuedAt"`
+}
+
 type ShieldedWithdrawalVerifierDeploymentInput struct {
 	AppID       string `json:"-"`
 	KeyID       string `json:"-"`
@@ -628,6 +663,13 @@ type Store interface {
 	MarkShieldedPayoutPoolDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
 	MarkShieldedPayoutPoolDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error
 	MarkShieldedPayoutPoolDeploymentFailed(ctx context.Context, deploymentID string, message string) error
+	CreatePrivacyAccessPassDeployment(ctx context.Context, input PrivacyAccessPassDeploymentInput) (PrivacyAccessPassDeployment, error)
+	ListPrivacyAccessPassDeployments(ctx context.Context, appID string, limit int64) ([]PrivacyAccessPassDeployment, error)
+	RemovePrivacyAccessPassDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (PrivacyAccessPassDeployment, error)
+	ClaimNextPrivacyAccessPassDeployment(ctx context.Context) (PrivacyAccessPassDeployment, bool, error)
+	MarkPrivacyAccessPassDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error
+	MarkPrivacyAccessPassDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error
+	MarkPrivacyAccessPassDeploymentFailed(ctx context.Context, deploymentID string, message string) error
 	CreateShieldedWithdrawalVerifierDeployment(ctx context.Context, input ShieldedWithdrawalVerifierDeploymentInput) (ShieldedWithdrawalVerifierDeployment, error)
 	ListShieldedWithdrawalVerifierDeployments(ctx context.Context, appID string, limit int64) ([]ShieldedWithdrawalVerifierDeployment, error)
 	RemoveShieldedWithdrawalVerifierDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (ShieldedWithdrawalVerifierDeployment, error)

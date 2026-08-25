@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -1616,6 +1617,7 @@ var contractDeploymentSpecs = map[string]contractDeploymentSpec{
 	"marketplaces":                  {label: "MarketplaceDeployment", relationship: "HAS_MARKETPLACE_DEPLOYMENT"},
 	"private-claim-registries":      {label: "PrivateClaimRegistryDeployment", relationship: "HAS_PRIVATE_CLAIM_REGISTRY_DEPLOYMENT"},
 	"shielded-payout-pools":         {label: "ShieldedPayoutPoolDeployment", relationship: "HAS_SHIELDED_PAYOUT_POOL_DEPLOYMENT"},
+	"privacy-access-passes":         {label: "PrivacyAccessPassDeployment", relationship: "HAS_PRIVACY_ACCESS_PASS_DEPLOYMENT"},
 	"shielded-withdrawal-verifiers": {label: "ShieldedWithdrawalVerifierDeployment", relationship: "HAS_SHIELDED_WITHDRAWAL_VERIFIER_DEPLOYMENT"},
 	"account-abstraction":           {label: "AccountAbstractionDeployment", relationship: "HAS_ACCOUNT_ABSTRACTION_DEPLOYMENT"},
 }
@@ -3013,6 +3015,210 @@ RETURN d.id AS id
 			"error":           strings.TrimSpace(message),
 			"abi":             strings.TrimSpace(abi),
 			"now":             time.Now().UTC().Format(time.RFC3339),
+		})
+		return nil, err
+	})
+	return err
+}
+
+const privacyAccessPassDeploymentReturn = `
+RETURN d.id AS id, d.appId AS appId, d.keyId AS keyId, d.name AS name,
+  d.tokenAddress AS tokenAddress, d.ownerAddress AS ownerAddress, d.treasuryAddress AS treasuryAddress,
+  d.initialAllowedFee AS initialAllowedFee, d.chainId AS chainId, coalesce(d.description, "") AS description,
+  coalesce(d.status, "queued") AS status, coalesce(d.contractAddress, "") AS contractAddress,
+  coalesce(d.transactionHash, "") AS transactionHash, coalesce(d.error, "") AS error,
+  coalesce(d.sourceName, "") AS sourceName, coalesce(d.sourceCode, "") AS sourceCode,
+  coalesce(d.abi, "") AS abi, d.createdAt AS createdAt, d.updatedAt AS updatedAt,
+  coalesce(d.queuedAt, "") AS queuedAt`
+
+func normalizePrivacyAccessPassFee(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "0", nil
+	}
+	fee, ok := new(big.Int).SetString(value, 10)
+	if !ok || fee.Sign() < 0 {
+		return "", errors.New("initialAllowedFee must be a non-negative base-unit integer")
+	}
+	return fee.String(), nil
+}
+
+func (s *MemgraphStore) CreatePrivacyAccessPassDeployment(ctx context.Context, input PrivacyAccessPassDeploymentInput) (PrivacyAccessPassDeployment, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = "Privacy Access Pass"
+	}
+	if input.ChainID <= 0 {
+		return PrivacyAccessPassDeployment{}, errors.New("chainId is required")
+	}
+	tokenAddress := strings.ToLower(strings.TrimSpace(input.TokenAddress))
+	if tokenAddress == "" {
+		return PrivacyAccessPassDeployment{}, errors.New("token address is required")
+	}
+	ownerAddress := strings.ToLower(strings.TrimSpace(input.OwnerAddress))
+	if ownerAddress == "" {
+		return PrivacyAccessPassDeployment{}, errors.New("owner address is required")
+	}
+	treasuryAddress := strings.ToLower(strings.TrimSpace(input.TreasuryAddress))
+	if treasuryAddress == "" {
+		return PrivacyAccessPassDeployment{}, errors.New("treasury address is required")
+	}
+	initialAllowedFee, err := normalizePrivacyAccessPassFee(input.InitialAllowedFee)
+	if err != nil {
+		return PrivacyAccessPassDeployment{}, err
+	}
+	sourceName := safeContractName(name, "PrivacyAccessPass")
+	if !strings.Contains(strings.ToLower(sourceName), "pass") {
+		sourceName += "Pass"
+	}
+	now := time.Now().UTC().Format(time.RFC3339)
+	params := map[string]any{
+		"id": uuid.NewString(), "appID": strings.TrimSpace(input.AppID), "keyID": strings.TrimSpace(input.KeyID),
+		"name": name, "tokenAddress": tokenAddress, "ownerAddress": ownerAddress,
+		"treasuryAddress": treasuryAddress, "initialAllowedFee": initialAllowedFee,
+		"chainID": input.ChainID, "description": strings.TrimSpace(input.Description),
+		"sourceName": sourceName, "sourceCode": contracts.PrivacyAccessPassSource(sourceName), "now": now,
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (a:EngineApp {id: $appID})
+CREATE (d:PrivacyAccessPassDeployment {
+  id: $id, appId: $appID, keyId: $keyID, name: $name, tokenAddress: $tokenAddress,
+  ownerAddress: $ownerAddress, treasuryAddress: $treasuryAddress, initialAllowedFee: $initialAllowedFee,
+  chainId: $chainID, description: $description, status: "queued", contractAddress: "",
+  transactionHash: "", error: "", sourceName: $sourceName, sourceCode: $sourceCode,
+  abi: "", createdAt: $now, updatedAt: $now, queuedAt: $now
+})
+MERGE (a)-[:HAS_PRIVACY_ACCESS_PASS_DEPLOYMENT]->(d)`+privacyAccessPassDeploymentReturn, params)
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return privacyAccessPassDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("engine app not found")
+	})
+	if err != nil {
+		return PrivacyAccessPassDeployment{}, err
+	}
+	return result.(PrivacyAccessPassDeployment), nil
+}
+
+func (s *MemgraphStore) ListPrivacyAccessPassDeployments(ctx context.Context, appID string, limit int64) ([]PrivacyAccessPassDeployment, error) {
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeRead})
+	defer session.Close(ctx)
+	result, err := session.ExecuteRead(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp {id: $appID})-[:HAS_PRIVACY_ACCESS_PASS_DEPLOYMENT]->(d:PrivacyAccessPassDeployment)
+WHERE coalesce(d.hiddenFromDashboard, false) = false`+privacyAccessPassDeploymentReturn+`
+ORDER BY d.createdAt DESC
+LIMIT $limit`, map[string]any{"appID": strings.TrimSpace(appID), "limit": limit})
+		if err != nil {
+			return nil, err
+		}
+		deployments := []PrivacyAccessPassDeployment{}
+		for rows.Next(ctx) {
+			deployments = append(deployments, privacyAccessPassDeploymentFromRecord(rows.Record()))
+		}
+		return deployments, rows.Err()
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.([]PrivacyAccessPassDeployment), nil
+}
+
+func (s *MemgraphStore) RemovePrivacyAccessPassDeploymentFromDashboard(ctx context.Context, accountID string, deploymentID string) (PrivacyAccessPassDeployment, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:GMRAccount {id: $accountID})-[:OWNS_ENGINE_APP]->(:EngineApp)-[:HAS_PRIVACY_ACCESS_PASS_DEPLOYMENT]->(d:PrivacyAccessPassDeployment {id: $deploymentID})
+WHERE coalesce(d.hiddenFromDashboard, false) = false AND NOT coalesce(d.status, "queued") IN ["deploying", "submitted"]
+SET d.hiddenFromDashboard = true, d.removedAt = $now, d.updatedAt = $now`+privacyAccessPassDeploymentReturn, map[string]any{
+			"accountID": strings.TrimSpace(accountID), "deploymentID": strings.TrimSpace(deploymentID),
+			"now": time.Now().UTC().Format(time.RFC3339),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return privacyAccessPassDeploymentFromRecord(rows.Record()), nil
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		return nil, errors.New("removable deployment not found")
+	})
+	if err != nil {
+		return PrivacyAccessPassDeployment{}, err
+	}
+	return result.(PrivacyAccessPassDeployment), nil
+}
+
+func (s *MemgraphStore) ClaimNextPrivacyAccessPassDeployment(ctx context.Context) (PrivacyAccessPassDeployment, bool, error) {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	result, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		rows, err := tx.Run(ctx, `
+MATCH (:EngineApp)-[:HAS_PRIVACY_ACCESS_PASS_DEPLOYMENT]->(d:PrivacyAccessPassDeployment)
+WHERE coalesce(d.status, "queued") = "queued" AND coalesce(d.hiddenFromDashboard, false) = false
+WITH d ORDER BY d.createdAt ASC LIMIT 1
+SET d.status = "deploying", d.updatedAt = $now, d.error = ""`+privacyAccessPassDeploymentReturn,
+			map[string]any{"now": time.Now().UTC().Format(time.RFC3339)})
+		if err != nil {
+			return nil, err
+		}
+		if rows.Next(ctx) {
+			return privacyAccessPassDeploymentFromRecord(rows.Record()), nil
+		}
+		return nil, rows.Err()
+	})
+	if err != nil {
+		return PrivacyAccessPassDeployment{}, false, err
+	}
+	if result == nil {
+		return PrivacyAccessPassDeployment{}, false, nil
+	}
+	return result.(PrivacyAccessPassDeployment), true, nil
+}
+
+func (s *MemgraphStore) MarkPrivacyAccessPassDeploymentSubmitted(ctx context.Context, deploymentID string, transactionHash string) error {
+	return s.updatePrivacyAccessPassDeploymentStatus(ctx, deploymentID, "submitted", transactionHash, "", "", "")
+}
+
+func (s *MemgraphStore) MarkPrivacyAccessPassDeploymentConfirmed(ctx context.Context, deploymentID string, contractAddress string, abi string) error {
+	return s.updatePrivacyAccessPassDeploymentStatus(ctx, deploymentID, "confirmed", "", strings.ToLower(strings.TrimSpace(contractAddress)), "", abi)
+}
+
+func (s *MemgraphStore) MarkPrivacyAccessPassDeploymentFailed(ctx context.Context, deploymentID string, message string) error {
+	return s.updatePrivacyAccessPassDeploymentStatus(ctx, deploymentID, "failed", "", "", message, "")
+}
+
+func (s *MemgraphStore) updatePrivacyAccessPassDeploymentStatus(ctx context.Context, deploymentID string, status string, transactionHash string, contractAddress string, message string, abi string) error {
+	session := s.driver.NewSession(ctx, neo4j.SessionConfig{AccessMode: neo4j.AccessModeWrite})
+	defer session.Close(ctx)
+	_, err := session.ExecuteWrite(ctx, func(tx neo4j.ManagedTransaction) (any, error) {
+		_, err := tx.Run(ctx, `
+MATCH (d:PrivacyAccessPassDeployment {id: $deploymentID})
+SET d.status = $status, d.updatedAt = $now
+SET d.transactionHash = CASE WHEN $transactionHash <> "" THEN $transactionHash ELSE coalesce(d.transactionHash, "") END
+SET d.contractAddress = CASE WHEN $contractAddress <> "" THEN $contractAddress ELSE coalesce(d.contractAddress, "") END
+SET d.error = CASE WHEN $error <> "" THEN $error ELSE "" END
+SET d.abi = CASE WHEN $abi <> "" THEN $abi ELSE coalesce(d.abi, "") END
+RETURN d.id AS id`, map[string]any{
+			"deploymentID": strings.TrimSpace(deploymentID), "status": strings.TrimSpace(status),
+			"transactionHash": strings.TrimSpace(transactionHash), "contractAddress": strings.TrimSpace(contractAddress),
+			"error": strings.TrimSpace(message), "abi": strings.TrimSpace(abi),
+			"now": time.Now().UTC().Format(time.RFC3339),
 		})
 		return nil, err
 	})

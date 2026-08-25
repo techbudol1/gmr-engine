@@ -234,6 +234,10 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load shielded payout pool deployments")
 	}
+	privacyAccessPassDeployments, err := s.store.ListPrivacyAccessPassDeployments(c.Context(), app.ID, 50)
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load privacy access pass deployments")
+	}
 	shieldedWithdrawalVerifierDeployments, err := s.store.ListShieldedWithdrawalVerifierDeployments(c.Context(), app.ID, 50)
 	if err != nil {
 		return fiber.NewError(fiber.StatusInternalServerError, "failed to load shielded withdrawal verifier deployments")
@@ -250,7 +254,7 @@ func (s Server) dashboardProject(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "marketplaceDeployments": marketplaceDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "accountAbstractionDeployments": accountAbstractionDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
+	return c.JSON(fiber.Map{"account": account, "project": app, "keys": keys, "usage": usage, "transactions": transactions, "wallets": wallets, "userWallets": userWallets, "erc20Deployments": deployments, "erc1155EditionDeployments": editionDeployments, "escrowDeployments": escrowDeployments, "marketplaceDeployments": marketplaceDeployments, "privateClaimRegistryDeployments": privateClaimRegistryDeployments, "shieldedPayoutPoolDeployments": shieldedPayoutPoolDeployments, "privacyAccessPassDeployments": privacyAccessPassDeployments, "shieldedWithdrawalVerifierDeployments": shieldedWithdrawalVerifierDeployments, "accountAbstractionDeployments": accountAbstractionDeployments, "importedContracts": importedContracts, "serverWallet": serverWallet})
 }
 
 func (s Server) dashboardCreateAPIKey(c *fiber.Ctx) error {
@@ -601,6 +605,53 @@ func (s Server) dashboardDeleteShieldedPayoutPoolDeployment(c *fiber.Ctx) error 
 		return fiber.NewError(fiber.StatusUnauthorized, "login required")
 	}
 	deployment, err := s.store.RemoveShieldedPayoutPoolDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardPrivacyAccessPassDeployments(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	deployments, err := s.store.ListPrivacyAccessPassDeployments(c.Context(), app.ID, queryLimit(c))
+	if err != nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "failed to load privacy access pass deployments")
+	}
+	return c.JSON(fiber.Map{"privacyAccessPassDeployments": deployments})
+}
+
+func (s Server) dashboardCreatePrivacyAccessPassDeployment(c *fiber.Ctx) error {
+	_, app, err := s.dashboardAccountApp(c)
+	if err != nil {
+		return err
+	}
+	var request store.PrivacyAccessPassDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = app.ID
+	if err := enforceProjectPolicy(app, request.ChainID, request.TokenAddress); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), app.ID, request.ChainID); err != nil {
+		return err
+	}
+	deployment, err := s.store.CreatePrivacyAccessPassDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
+func (s Server) dashboardDeletePrivacyAccessPassDeployment(c *fiber.Ctx) error {
+	account, ok := c.Locals(accountLocalKey).(store.Account)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "login required")
+	}
+	deployment, err := s.store.RemovePrivacyAccessPassDeploymentFromDashboard(c.Context(), account.ID, c.Params("id"))
 	if err != nil {
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}

@@ -696,6 +696,30 @@ func (s Server) createShieldedPayoutPoolDeployment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
 }
 
+func (s Server) createPrivacyAccessPassDeployment(c *fiber.Ctx) error {
+	principal, ok := c.Locals(principalLocalKey).(principal)
+	if !ok {
+		return fiber.NewError(fiber.StatusUnauthorized, "engine auth required")
+	}
+	var request store.PrivacyAccessPassDeploymentInput
+	if err := c.BodyParser(&request); err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, "invalid JSON body")
+	}
+	request.AppID = principal.App.ID
+	request.KeyID = principal.Key.ID
+	if err := enforceProjectPolicy(principal.App, request.ChainID, request.TokenAddress); err != nil {
+		return fiber.NewError(fiber.StatusForbidden, err.Error())
+	}
+	if err := s.requireDeploymentGas(c.Context(), principal.App.ID, request.ChainID); err != nil {
+		return err
+	}
+	deployment, err := s.store.CreatePrivacyAccessPassDeployment(c.Context(), request)
+	if err != nil {
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
+	}
+	return c.Status(fiber.StatusAccepted).JSON(fiber.Map{"deployment": deployment})
+}
+
 func (s Server) createShieldedWithdrawalVerifierDeployment(c *fiber.Ctx) error {
 	principal, ok := c.Locals(principalLocalKey).(principal)
 	if !ok {

@@ -81,6 +81,9 @@ func (w *Worker) processOnce(ctx context.Context) {
 	if err := w.processShieldedPayoutPool(ctx); err != nil {
 		log.Printf("shielded payout pool deployer error: %v", err)
 	}
+	if err := w.processPrivacyAccessPass(ctx); err != nil {
+		log.Printf("privacy access pass deployer error: %v", err)
+	}
 	if err := w.processShieldedWithdrawalVerifier(ctx); err != nil {
 		log.Printf("shielded withdrawal verifier deployer error: %v", err)
 	}
@@ -301,6 +304,25 @@ func (w *Worker) processShieldedPayoutPool(ctx context.Context) error {
 	return w.store.MarkShieldedPayoutPoolDeploymentConfirmed(ctx, deployment.ID, result.ContractAddress, artifact.ABI)
 }
 
+func (w *Worker) processPrivacyAccessPass(ctx context.Context) error {
+	deployment, ok, err := w.store.ClaimNextPrivacyAccessPassDeployment(ctx)
+	if err != nil || !ok {
+		return err
+	}
+
+	result, artifact, err := w.deployPrivacyAccessPass(ctx, deployment)
+	if err != nil {
+		_ = w.store.MarkPrivacyAccessPassDeploymentFailed(ctx, deployment.ID, err.Error())
+		return err
+	}
+	_ = w.store.MarkPrivacyAccessPassDeploymentSubmitted(ctx, deployment.ID, result.TransactionHash)
+	if result.Status != "success" {
+		_ = w.store.MarkPrivacyAccessPassDeploymentFailed(ctx, deployment.ID, "deployment transaction reverted")
+		return nil
+	}
+	return w.store.MarkPrivacyAccessPassDeploymentConfirmed(ctx, deployment.ID, result.ContractAddress, artifact.ABI)
+}
+
 func (w *Worker) processShieldedWithdrawalVerifier(ctx context.Context) error {
 	deployment, ok, err := w.store.ClaimNextShieldedWithdrawalVerifierDeployment(ctx)
 	if err != nil || !ok {
@@ -436,6 +458,23 @@ func (w *Worker) deployShieldedPayoutPool(ctx context.Context, deployment store.
 		{Kind: "address", Value: deployment.OwnerAddress},
 		{Kind: "address", Value: deployment.VerifierAddress},
 		{Kind: "uint", Value: deployment.Denomination},
+	})
+	if err != nil {
+		return deployResult{}, compiledArtifact{}, err
+	}
+	return result, artifact, nil
+}
+
+func (w *Worker) deployPrivacyAccessPass(ctx context.Context, deployment store.PrivacyAccessPassDeployment) (deployResult, compiledArtifact, error) {
+	artifact, err := compileSolidity(ctx, deployment.SourceName, contracts.PrivacyAccessPassSource(deployment.SourceName))
+	if err != nil {
+		return deployResult{}, compiledArtifact{}, err
+	}
+	result, err := w.broadcastDeployment(ctx, deployment.AppID, deployment.ChainID, artifact, []constructorArg{
+		{Kind: "address", Value: deployment.TokenAddress},
+		{Kind: "address", Value: deployment.OwnerAddress},
+		{Kind: "address", Value: deployment.TreasuryAddress},
+		{Kind: "uint", Value: deployment.InitialAllowedFee},
 	})
 	if err != nil {
 		return deployResult{}, compiledArtifact{}, err

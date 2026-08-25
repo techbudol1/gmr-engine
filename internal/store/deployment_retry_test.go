@@ -10,6 +10,7 @@ func TestLookupContractDeploymentSpec(t *testing.T) {
 		"marketplaces",
 		"private-claim-registries",
 		"shielded-payout-pools",
+		"privacy-access-passes",
 		"shielded-withdrawal-verifiers",
 		"account-abstraction",
 	} {

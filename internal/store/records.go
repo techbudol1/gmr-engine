@@ -333,6 +333,31 @@ func shieldedPayoutPoolDeploymentFromRecord(record *neo4j.Record) ShieldedPayout
 	}
 }
 
+func privacyAccessPassDeploymentFromRecord(record *neo4j.Record) PrivacyAccessPassDeployment {
+	return PrivacyAccessPassDeployment{
+		ID:                stringValue(record, "id"),
+		AppID:             stringValue(record, "appId"),
+		KeyID:             stringValue(record, "keyId"),
+		Name:              stringValue(record, "name"),
+		TokenAddress:      stringValue(record, "tokenAddress"),
+		OwnerAddress:      stringValue(record, "ownerAddress"),
+		TreasuryAddress:   stringValue(record, "treasuryAddress"),
+		InitialAllowedFee: stringValue(record, "initialAllowedFee"),
+		ChainID:           intValue(record, "chainId"),
+		Description:       stringValue(record, "description"),
+		Status:            stringValue(record, "status"),
+		ContractAddress:   stringValue(record, "contractAddress"),
+		TransactionHash:   stringValue(record, "transactionHash"),
+		Error:             stringValue(record, "error"),
+		SourceName:        stringValue(record, "sourceName"),
+		SourceCode:        stringValue(record, "sourceCode"),
+		ABI:               stringValue(record, "abi"),
+		CreatedAt:         stringValue(record, "createdAt"),
+		UpdatedAt:         stringValue(record, "updatedAt"),
+		QueuedAt:          stringValue(record, "queuedAt"),
+	}
+}
+
 func shieldedWithdrawalVerifierDeploymentFromRecord(record *neo4j.Record) ShieldedWithdrawalVerifierDeployment {
 	return ShieldedWithdrawalVerifierDeployment{
 		ID:              stringValue(record, "id"),
